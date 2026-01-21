@@ -5,205 +5,8 @@ import px "core:sys/posix"
 import lx "core:sys/linux"
 import os "core:os/os2"
 
-Pos     :: [2]i16 // col, row
-Rect    :: [4]i16 // col, row, width, height
-ORIGIN :: Pos{ 1, 1 }
 
-// TODO: maybe replace with south east north west?
-BoxStyle :: struct {
-    left        : rune,
-    right       : rune,
-    top         : rune,
-    bot         : rune,
 
-    topLeft     : rune,
-    topRight    : rune,
-    botLeft     : rune,
-    botRight    : rune,
-}
-
-BoxType :: enum u8 {
-    None,
-
-    Single,
-    SingleHeavy,
-    SingleCurve,
-    Double,
-
-    Dash2,
-    Dash2Heavy,
-    Dash3,
-    Dash3Heavy,
-    Dash4,
-    Dash4Heavy,
-}
-
-BoxTypeMask :: bit_set[BoxType]
-
-BoxCharacter :: struct {
-    character : rune,
-    masks : [4]BoxTypeMask,
-    type : BoxTypeMask,
-}
-
-// TODO: some connectors obviously don't work (there's no horizontal line Single-Double), gotta come up with something
-
-// NORTH    EAST    SOUTH    WEST
-BoxTypeMask_Light : BoxTypeMask : { .Single, .SingleCurve, .Dash2, .Dash3, .Dash4 }
-BoxTypeMask_Heavy : BoxTypeMask : { .SingleHeavy, .Dash2Heavy, .Dash3Heavy, .Dash4Heavy }
-BoxTypeMask_1 : BoxTypeMask : { .Single, .SingleHeavy, .SingleCurve, .Dash2, .Dash2Heavy, .Dash3, .Dash3Heavy, .Dash4, .Dash4Heavy }
-BoxTypeMask_2 : BoxTypeMask : { .Double }
-BoxCharacters : []BoxCharacter = {
-    { '─', { { .None }, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Single, .SingleCurve } },
-    { '━', { { .None }, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .SingleHeavy } },
-    { '│', { BoxTypeMask_Light, { .None }, BoxTypeMask_Light, { .None } }, { .Single, .SingleCurve } },
-    { '┃', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, { .None } }, { .SingleHeavy } },
-    { '┄', { { .None }, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Dash3 } },
-    { '┅', { { .None }, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .Dash3Heavy } },
-    { '┆', { BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy, { .None } }, { .Dash3 } },
-    { '┇', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, { .None } }, { .Dash3Heavy } },
-    { '┈', { { .None }, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Dash4 } },
-    { '┉', { { .None }, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .Dash4Heavy } },
-    { '┊', { BoxTypeMask_Light, { .None }, BoxTypeMask_Light, { .None } }, { .Dash4 } },
-    { '┋', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, { .None } }, { .Dash4Heavy } },
-    { '┌', { { .None }, BoxTypeMask_Light, BoxTypeMask_Light, { .None } }, { .Single } },
-    { '┍', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light, { .None } }, { .Single, .SingleHeavy } },
-    { '┎', { { .None }, BoxTypeMask_Light, BoxTypeMask_Heavy, { .None } }, { .Single, .SingleHeavy } },
-    { '┏', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None } }, { .SingleHeavy } },
-    { '┐', { { .None }, { .None }, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single } },
-    { '┑', { { .None }, { .None }, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┒', { { .None }, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┓', { { .None }, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .SingleHeavy } },
-    { '└', { BoxTypeMask_Light, BoxTypeMask_Light, { .None }, { .None } }, { .Single } },
-    { '┕', { BoxTypeMask_Light, BoxTypeMask_Heavy, { .None }, { .None } }, { .Single, .SingleHeavy }},
-    { '┖', { BoxTypeMask_Heavy, BoxTypeMask_Light, { .None }, { .None } }, { .Single, .SingleHeavy }},
-    { '┗', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None }, { .None } }, { .SingleHeavy } },
-    { '┘', { BoxTypeMask_Light, { .None }, { .None }, BoxTypeMask_Light }, { .Single } },
-    { '┙', { BoxTypeMask_Light, { .None }, { .None }, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┚', { BoxTypeMask_Heavy, { .None }, { .None }, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┛', { BoxTypeMask_Heavy, { .None }, { .None }, BoxTypeMask_Heavy }, { .SingleHeavy } },
-    { '├', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light, { .None } }, { .Single } },
-    { '┝', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light, { .None } }, { .Single, .SingleHeavy } },
-    { '┞', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light, { .None } }, { .Single, .SingleHeavy } },
-    { '┟', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy, { .None } }, { .Single, .SingleHeavy } },
-    { '┠', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy, { .None } }, { .Single, .SingleHeavy } },
-    { '┡', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light, { .None } }, { .Single, .SingleHeavy } },
-    { '┢', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None } }, { .Single, .SingleHeavy } },
-    { '┣', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None } }, { .SingleHeavy } },
-
-    { '┤', { BoxTypeMask_Light, { .None }, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single } },
-    { '┥', { BoxTypeMask_Light, { .None }, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┦', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┧', { BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┨', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┩', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┪', { BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┫', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .SingleHeavy } },
-
-    { '┬', { { .None }, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single } },
-    { '┭', { { .None }, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┮', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┯', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┰', { { .None }, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┱', { { .None }, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┲', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┳', { { .None }, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .SingleHeavy } },
-
-    { '┴', { BoxTypeMask_Light, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Single } },
-    { '┵', { BoxTypeMask_Light, BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┶', { BoxTypeMask_Light, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┷', { BoxTypeMask_Light, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┸', { BoxTypeMask_Heavy, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┹', { BoxTypeMask_Heavy, BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┺', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┻', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .SingleHeavy } },
-
-    { '┼', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single } },
-    { '┽', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '┾', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '┿', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╀', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╁', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╂', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╃', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╄', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╅', { BoxTypeMask_Light, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╆', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╇', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╈', { BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╉', { BoxTypeMask_Heavy, BoxTypeMask_Light, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .Single, .SingleHeavy } },
-    { '╊', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Light }, { .Single, .SingleHeavy } },
-    { '╋', { BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy, BoxTypeMask_Heavy }, { .SingleHeavy } },
-
-    { '╌', { { .None }, BoxTypeMask_Light, { .None }, BoxTypeMask_Light }, { .Dash2 } },
-    { '╍', { { .None }, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy }, { .Dash2Heavy } },
-    { '╎', { BoxTypeMask_Light, { .None }, BoxTypeMask_Light, { .None } }, { .Dash2 } },
-    { '╏', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Heavy, { .None } }, { .Dash2Heavy } },
-
-    { '═', { { .None }, BoxTypeMask_2, { .None }, BoxTypeMask_2 }, { .Double } },
-    { '║', { BoxTypeMask_2, { .None }, BoxTypeMask_2, { .None } }, { .Double } },
-    { '╒', { { .None }, BoxTypeMask_2, BoxTypeMask_1, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╓', { { .None }, BoxTypeMask_1, BoxTypeMask_2, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╔', { { .None }, BoxTypeMask_2, BoxTypeMask_2, { .None } }, { .Double } },
-    { '╕', { { .None }, { .None }, BoxTypeMask_1, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╖', { { .None }, { .None }, BoxTypeMask_2, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╗', { { .None }, { .None }, BoxTypeMask_2, BoxTypeMask_2 }, { .Double } },
-    { '╘', { BoxTypeMask_1, BoxTypeMask_2, { .None }, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╙', { BoxTypeMask_2, BoxTypeMask_1, { .None }, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╚', { BoxTypeMask_2, BoxTypeMask_2, { .None }, { .None } }, { .Double } },
-    { '╛', { BoxTypeMask_1, { .None }, { .None }, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╜', { BoxTypeMask_2, { .None }, { .None }, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╝', { BoxTypeMask_2, { .None }, { .None }, BoxTypeMask_2 }, { .Double } },
-
-    { '╞', { BoxTypeMask_1, BoxTypeMask_2, BoxTypeMask_1, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╟', { BoxTypeMask_2, BoxTypeMask_1, BoxTypeMask_2, { .None } }, { .Single, .SingleCurve, .Double } },
-    { '╠', { BoxTypeMask_2, BoxTypeMask_2, BoxTypeMask_2, { .None } }, { .Double } },
-    { '╡', { BoxTypeMask_1, { .None }, BoxTypeMask_1, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╢', { BoxTypeMask_2, { .None }, BoxTypeMask_2, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╣', { BoxTypeMask_2, { .None }, BoxTypeMask_2, BoxTypeMask_2 }, { .Double } },
-    { '╤', { { .None }, BoxTypeMask_2, BoxTypeMask_1, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╥', { { .None }, BoxTypeMask_1, BoxTypeMask_2, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╦', { { .None }, BoxTypeMask_2, BoxTypeMask_2, BoxTypeMask_2 }, { .Double } },
-    { '╧', { BoxTypeMask_1, BoxTypeMask_2, { .None }, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╨', { BoxTypeMask_2, BoxTypeMask_1, { .None }, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╩', { BoxTypeMask_2, BoxTypeMask_2, { .None }, BoxTypeMask_2 }, { .Double } },
-    { '╪', { BoxTypeMask_1, BoxTypeMask_2, BoxTypeMask_1, BoxTypeMask_2 }, { .Single, .SingleCurve, .Double } },
-    { '╫', { BoxTypeMask_2, BoxTypeMask_1, BoxTypeMask_2, BoxTypeMask_1 }, { .Single, .SingleCurve, .Double } },
-    { '╬', { BoxTypeMask_2, BoxTypeMask_2, BoxTypeMask_2, BoxTypeMask_2 }, { .Double } },
-
-    { '╭', { { .None }, BoxTypeMask_Light, BoxTypeMask_Light, { .None } }, { .SingleCurve } },
-    { '╮', { { .None }, { .None }, BoxTypeMask_Light, BoxTypeMask_Light }, { .SingleCurve } },
-    { '╯', { BoxTypeMask_Light, { .None }, { .None }, BoxTypeMask_Light }, { .SingleCurve } },
-    { '╰', { BoxTypeMask_Light, BoxTypeMask_Light, { .None }, { .None } }, { .SingleCurve } },
-
-    { '╴', { { .None }, { .None }, { .None }, BoxTypeMask_Light }, { .Single, .SingleCurve } },
-    { '╵', { BoxTypeMask_Light, { .None }, { .None }, { .None } }, { .Single, .SingleCurve } },
-    { '╶', { { .None }, BoxTypeMask_Light, { .None }, { .None } }, { .Single, .SingleCurve } },
-    { '╷', { { .None }, { .None }, BoxTypeMask_Light, { .None } }, { .Single, .SingleCurve } },
-    { '╸', { { .None }, BoxTypeMask_Heavy, { .None }, { .None } }, { .SingleHeavy } },
-    { '╹', { BoxTypeMask_Heavy, { .None }, { .None }, { .None } }, { .SingleHeavy } },
-    { '╺', { { .None }, BoxTypeMask_Heavy, { .None }, { .None } }, { .SingleHeavy } },
-    { '╻', { { .None }, { .None }, BoxTypeMask_Heavy, { .None } }, { .SingleHeavy } },
-    { '╼', { { .None }, BoxTypeMask_Heavy, { .None }, BoxTypeMask_Light }, { .Single, .SingleHeavy, .SingleCurve } },
-    { '╽', { BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy, { .None } }, { .Single, .SingleHeavy, .SingleCurve } },
-    { '╾', { { .None }, BoxTypeMask_Light, { .None }, BoxTypeMask_Heavy }, { .Single, .SingleHeavy, .SingleCurve } },
-    { '╿', { BoxTypeMask_Heavy, { .None }, BoxTypeMask_Light, { .None } }, { .Single, .SingleHeavy, .SingleCurve } },
-}
-
-// NOTE: these are i16 so that underflow won't happen when subtracting
-winsize :: struct {
-    ws_row      : i16,
-    ws_col      : i16,
-    ws_xpixel   : i16,
-    ws_ypixel   : i16,
-}
-
-getScreenRect :: proc () -> (r : Rect, ok : bool) {
-    w : winsize
-    ok = lx.ioctl(px.STDIN_FILENO, lx.TIOCGWINSZ, cast(uintptr)&w) == 0
-    r = rect_from_pos({ 0, 0 }, { w.ws_col - 1, w.ws_row - 1 })
-    return
-}
 
 CellData :: struct {
     r : rune
@@ -242,6 +45,39 @@ buffer_set :: proc (buffer : Buffer($ty), pos : Pos, value : ty, relative : bool
     return
 }
 
+buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos = { 0, 0 }) {
+    for x in 0..<src.rect.z {
+        for y in 0..<src.rect.w {
+            buffer_set(dst, { x, y } + src.rect.xy + offset, buffer_get(src, { x, y }) or_continue)
+        }
+    }
+}
+
+buffer_present :: proc (buffer : Buffer(rune)) {
+    consecutive := true
+    c_goto(buffer.rect.xy)
+
+    for y in 0..<buffer.rect.w {
+        for x in 0..<buffer.rect.z {
+            r := buffer_get(buffer, { x, y }) or_continue
+            if r == '\x00' {
+                consecutive = false
+                continue
+            }
+
+            if !consecutive {
+                c_goto({ x, y })
+                consecutive = true
+            }
+
+            os.write_rune(os.stdout, r)
+        }
+
+        // NOTE: unless buffer is the width of the screen
+        consecutive = false
+    }
+}
+
 
 // TODO: we will replace os.write_string to writing into a
 // temporary buffer
@@ -254,49 +90,6 @@ c_goto :: proc (p : Pos) {
     buffer : [32]u8
     s := fmt.bprintf(buffer[:], "\e[%v;%vH", p.y + 1, p.x + 1)
     os.write_string(os.stdout, s)
-}
-
-// https://en.wikipedia.org/wiki/Box-drawing_characters
-c_drawBox :: proc (r : Rect, s : BoxStyle, fill : bool = false) {
-    if r.z <= 1 || r.w <= 1 do return
-
-    c_goto({ r.x, r.y })
-    os.write_rune(os.stdout, s.topLeft)
-
-    c_goto({ r.x, r.y + r.w - 1 })
-    os.write_rune(os.stdout, s.botLeft)
-
-    c_goto({ r.x + r.z - 1, r.y })
-    os.write_rune(os.stdout, s.topRight)
-
-    c_goto({ r.x + r.z - 1, r.y + r.w - 1 })
-    os.write_rune(os.stdout, s.botRight)
-
-    c_goto({ r.x + 1, r.y })
-    for x in (r.x + 1)..=(r.x + r.z - 2) {
-        os.write_rune(os.stdout, s.top)
-    }
-
-    c_goto({ r.x + 1, r.y + r.w - 1 })
-    for x in (r.x + 1)..=(r.x + r.z - 2) {
-        os.write_rune(os.stdout, s.bot)
-    }
-
-    for y in (r.y + 1)..=(r.y + r.w - 2) {
-        c_goto({ r.x, y })
-        os.write_rune(os.stdout, s.left)
-
-        if fill {
-            for _ in 0..<(r.w - 2) {
-                os.write_rune(os.stdout, ' ')
-            }
-            os.write_rune(os.stdout, s.right)
-        }
-        else {
-            c_goto({ r.x + r.z - 1, y })
-            os.write_rune(os.stdout, s.right)
-        }
-    }
 }
 
 c_drawString :: proc (rect : Rect, str : string, inner : bool = true) {
@@ -324,8 +117,7 @@ c_drawString :: proc (rect : Rect, str : string, inner : bool = true) {
     }
 }
 
-c_drawBoxBuffer :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
-    // if !rect_within_rect(rect, buffer.rect) { return }
+c_drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
     br := br_from_rect(rect)
 
     for x in rect.x..<br.x {
@@ -336,6 +128,17 @@ c_drawBoxBuffer :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) 
     for y in (rect.y + 1)..<(br.y - 1) {
         buffer_set(buffer, Pos{ rect.x,   y }, type)
         buffer_set(buffer, Pos{ br.x - 1, y }, type)
+    }
+}
+
+// NOTE: mostly for drawing lines
+c_drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
+    br := br_from_rect(rect)
+
+    for x in rect.x..<br.x {
+        for y in rect.y..<br.y {
+            buffer_set(buffer, Pos{ x, y }, type)
+        }
     }
 }
 
@@ -352,24 +155,14 @@ c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 
             candidate : BoxCharacter
             for c in BoxCharacters {
-                if n not_in c.masks[0] {
-                    continue
-                }
-                if e not_in c.masks[1] {
-                    continue
-                }
-                if s not_in c.masks[2] {
-                    continue
-                }
-                if w not_in c.masks[3] {
-                    continue
-                }
+                if n not_in c.masks[0] ||
+                   e not_in c.masks[1] ||
+                   s not_in c.masks[2] ||
+                   w not_in c.masks[3] { continue }
 
                 candidate = c
                 if type in c.type { break }
             }
-
-            fmt.printfln("NESW: [%v, %v, %v, %v], result: %v", n, e, s, w, candidate)
 
             buffer_set(out, { x, y }, candidate.character)
         }
@@ -379,42 +172,49 @@ c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 
 
 
-rect_from_pos :: proc (tl : Pos, br : Pos) -> Rect {
-    return Rect{ tl.x, tl.y, br.x - tl.x + 1, br.y - tl.y + 1 }
+
+divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0) {
+    gaps := cast(u64)len(coefficients) * gap
+    if gaps >= value { return }
+
+    value := value - gaps
+
+    one : f64 = 0
+    for c in coefficients { one += f64(c) }
+    if one == 0 { return }
+
+    total : u64 = 0
+    for c, i in coefficients {
+        v := u64(f64(value) * (f64(c) / f64(one)))
+        values[i] = v
+        total += v
+    }
+
+    // TODO: I'm not sure if this is adequate, we need to prioritize larger coefficients and probably do it without a loop
+    rest := value - total
+    for rest > 0 {
+        for c, i in coefficients {
+            if rest == 0 { break }
+            if c == 0 { continue }
+            values[i] += 1
+            rest -= 1
+        }
+    }
 }
 
-br_from_rect :: proc (rect : Rect) -> Pos {
-    return Pos{ rect.x + rect.z, rect.y + rect.w }
-}
 
-rectInner :: proc (r : Rect) -> Rect {
-    return fixRect(r + { 1, 1, -2, -2 })
-}
 
-fixRect :: proc (r : Rect) -> (s : Rect) {
-    s = r
-    if s.z < 0 do s.z = 0
-    if s.w < 0 do s.w = 0
-    return
-}
 
-rect_within_rect :: proc (inner, outer : Rect) -> bool {
-    if inner.x < outer.x || inner.y < outer.y { return false }
-
-    x := outer.x - inner.x
-    y := outer.y - inner.y
-    inner := Rect{ x, y, inner.z - x, inner.w - y }
-
-    if inner.z > outer.z || inner.w > outer.w { return false }
-
-    return true
-}
 
 
 Element :: struct {
     children : [3]^Element,
+    render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
+}
 
-    render : proc (self : ^Element),
+RenderingContext :: struct {
+    bufferBoxes : Buffer(BoxType),
+    screenRect : Rect,
 }
 
 run :: proc () -> bool {
@@ -424,41 +224,16 @@ run :: proc () -> bool {
     defer px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &termRestore)
 
     term.c_lflag -= { .ECHO, .ICANON }
-
     px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &term)
+
+
 
     os.write_string(os.stdout, "\e[?25l")
     os.write_string(os.stdout, "\e[?1049h")
-    os.flush(os.stdout)
 
     defer {
         os.write_string(os.stdout, "\e[?25h")
         os.write_string(os.stdout, "\e[?1049l")
-        os.flush(os.stdout)
-    }
-
-    s1 := BoxStyle{
-        left        = '│',
-        right       = '│',
-        top         = '─',
-        bot         = '─',
-
-        topLeft     = '╭',
-        topRight    = '╮',
-        botLeft     = '╰',
-        botRight    = '╯',
-    }
-
-    s2 := BoxStyle{
-        left        = '║',
-        right       = '║',
-        top         = '═',
-        bot         = '═',
-
-        topLeft     = '╔',
-        topRight    = '╗',
-        botLeft     = '╚',
-        botRight    = '╝',
     }
 
 
@@ -477,6 +252,19 @@ run :: proc () -> bool {
 
     root := Element{
         children = { &p20, &p30, &p50 },
+        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+            c_drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
+            content := rectInner(ctx.screenRect)
+
+            width := content.z
+
+            c : []u64 = { 2, 3, 5 }
+            r : [3]u64
+            divideBetween(cast(u64)width, c, r[:], 1)
+
+            c_drawBlock(ctx.bufferBoxes, { content.x + cast(i16)r[0], content.y, 1, content.w }, .SingleCurve)
+            c_drawBlock(ctx.bufferBoxes, { content.x + cast(i16)r[0] + cast(i16)r[1], content.y, 1, content.w }, .SingleCurve)
+        }
     }
 
 
@@ -484,26 +272,22 @@ run :: proc () -> bool {
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
 
-    c_drawBoxBuffer(box, { 2, 2, 5, 5 }, .SingleCurve)
-    c_drawBoxBuffer(box, box.rect, .SingleCurve)
-    c_resolveBoxBuffer(box, screen)
+    // c_drawBoxBuffer(box, { 2, 2, 5, 5 }, .Dash4Heavy)
+    // c_drawBoxBuffer(box, box.rect, .SingleCurve)
+    // c_drawBlockBuffer(box, { 9, 9, 6, 6 }, .Dash2)
 
-    for _ in 0..<10 {
+    for _ in 0..<3 {
         c_clear()
-        r := getScreenRect() or_break
-        // os.write_string(os.stdout, "\e[41m")
 
-        for r in screen.data {
-            if r != '\x00' {
-                os.write_rune(os.stdout, r)
-            }
-            else {
-                os.write_rune(os.stdout, ' ')
-            }
+        ctx := RenderingContext{
+            bufferBoxes = box,
+            screenRect = getScreenRect() or_break
         }
-        // c_drawBox({ 2, 2, 10, 10 }, s1, true)
-        // c_drawBox({ 3, 3, 8, 3 }, s1)
-        // c_drawBox({ 3, 6, 8, 3 }, s1)
+        root->render(ctx, ctx.screenRect)
+
+        c_resolveBoxBuffer(box, screen)
+        buffer_present(screen)
+
 
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
