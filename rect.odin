@@ -82,3 +82,13 @@ rect_splitHorizontalLineGap :: proc (rect : Rect, topTakes : i16, gapSize : i16)
     gap, bot = rect_splitHorizontalLine(gap, gapSize)
     return
 }
+
+rect_intersection :: proc (a, b : Rect) -> (c : Rect) {
+    c.x = (a.x > b.x) ? a.x : b.x
+    c.y = (a.y > b.y) ? a.y : b.y
+
+    c.z = (a.x + a.z < b.x + b.z) ? a.z + (a.x - c.x) : b.z + (b.x - c.x)
+    c.w = (a.y + a.w < b.y + b.w) ? a.w + (a.y - c.y) : b.w + (b.y - c.y)
+
+    return
+}

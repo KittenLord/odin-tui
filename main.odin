@@ -109,9 +109,20 @@ c_drawStringAt :: proc (rect : Rect, str : string, pos : Pos) -> (end : Pos) {
             break
         }
 
-        // TODO: some characters take more horizontal space
-        os.write_rune(os.stdout, c)
-        pos.x += 1
+        if c == '\n' {
+            pos.x = rect.x
+            pos.y += 1
+            c_goto(pos)
+        }
+        else if c == '\r' {
+            pos.x = rect.x
+            c_goto(pos)
+        }
+        else {
+            // TODO: some characters take more horizontal space
+            os.write_rune(os.stdout, c)
+            pos.x += 1
+        }
     }
 
     end = pos
@@ -223,6 +234,32 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
 
 
+Table :: struct {
+    colSizes : []i16,
+    rowSizes : []i16,
+
+    rect : Rect,
+}
+
+table_getRect :: proc (table : Table, index : Pos) -> (rect : Rect, ok : bool = false) {
+    if cast(int)index.x >= len(table.colSizes) { return }
+    if cast(int)index.y >= len(table.rowSizes) { return }
+
+    offset := Pos{ 0, 0 }
+    for c in 0..<index.x {
+        offset.x += table.colSizes[c]
+    }
+
+    for r in 0..<index.y {
+        offset.y += table.rowSizes[r]
+    }
+
+    rect = Rect{ table.rect.x + offset.x, table.rect.y + offset.y, table.colSizes[index.x], table.rowSizes[index.y] }
+    rect = rect_intersection(rect, table.rect)
+    ok = true
+    return
+}
+
 
 
 
@@ -262,21 +299,32 @@ run :: proc () -> bool {
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
 
-            c_drawString(rectTitle, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            c_drawString(rectTitle, "ELF Header")
             c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
+
+            // TODO: i currently have very little clue on how to reasonably determine cell size
+            table := Table{ colSizes = { 9, 30 }, rowSizes = { 1, 1, 1 }, rect = rest }
+
+            c_drawString(table_getRect(table, { 0, 0 }) or_else {}, "Magic:")
+            c_drawString(table_getRect(table, { 0, 1 }) or_else {}, "Type:")
+            c_drawString(table_getRect(table, { 0, 2 }) or_else {}, "Machine:")
+
+            c_drawString(table_getRect(table, { 1, 0 }) or_else {}, "7f 45 4c 46 asdvausvdausydvavsdyavsuavysuvvydasvudv")
+            c_drawString(table_getRect(table, { 1, 1 }) or_else {}, "Shared Object")
+            c_drawString(table_getRect(table, { 1, 2 }) or_else {}, "x86-64")
         }
     }
 
     p30 := Element{
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
-            c_drawString({ rect.x, rect.y, rect.z, 1 }, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+            c_drawString({ rect.x, rect.y, rect.z, 1 }, "Program header")
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
     }
 
     p50 := Element{
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
-            c_drawString({ rect.x, rect.y, rect.z, 1 }, "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+            c_drawString({ rect.x, rect.y, rect.z, 1 }, "Segment content")
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
     }
@@ -323,7 +371,6 @@ run :: proc () -> bool {
 
         c_resolveBoxBuffer(box, screen)
         buffer_present(screen)
-
 
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
