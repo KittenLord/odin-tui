@@ -34,18 +34,18 @@ br_from_rect :: proc (rect : Rect) -> Pos {
     return Pos{ rect.x + rect.z, rect.y + rect.w }
 }
 
-rectInner :: proc (r : Rect) -> Rect {
-    return fixRect(r + { 1, 1, -2, -2 })
+rect_inner :: proc (r : Rect) -> Rect {
+    return rect_fix(r + { 1, 1, -2, -2 })
 }
 
-fixRect :: proc (r : Rect) -> (s : Rect) {
+rect_fix :: proc (r : Rect) -> (s : Rect) {
     s = r
     if s.z < 0 do s.z = 0
     if s.w < 0 do s.w = 0
     return
 }
 
-rect_within_rect :: proc (inner, outer : Rect) -> bool {
+is_rect_within_rect :: proc (inner, outer : Rect) -> bool {
     if inner.x < outer.x || inner.y < outer.y { return false }
 
     x := outer.x - inner.x
@@ -55,4 +55,30 @@ rect_within_rect :: proc (inner, outer : Rect) -> bool {
     if inner.z > outer.z || inner.w > outer.w { return false }
 
     return true
+}
+
+rect_splitVerticalLine :: proc (rect : Rect, leftTakes : i16) -> (lhs : Rect, rhs : Rect) {
+    if leftTakes <= 0 { return { rect.x, rect.y, 0, rect.w }, rect }
+    if leftTakes >= rect.z { return rect, { rect.x + rect.z, rect.y, 0, rect.w } }
+
+    return { rect.x, rect.y, leftTakes, rect.w }, { rect.x + leftTakes, rect.y, rect.z - leftTakes, rect.w }
+}
+
+rect_splitVerticalLineGap :: proc (rect : Rect, leftTakes : i16, gapSize : i16) -> (lhs : Rect, gap : Rect, rhs : Rect) {
+    lhs, gap = rect_splitVerticalLine(rect, leftTakes)
+    gap, rhs = rect_splitVerticalLine(gap, gapSize)
+    return
+}
+
+rect_splitHorizontalLine :: proc (rect : Rect, topTakes : i16) -> (top : Rect, bot : Rect) {
+    if topTakes <= 0 { return { rect.x, rect.y, rect.z, 0 }, rect }
+    if topTakes >= rect.w { return rect, { rect.x, rect.y + rect.w, rect.z, 0 } }
+
+    return { rect.x, rect.y, rect.z, topTakes }, { rect.x, rect.y + topTakes, rect.z, rect.w - topTakes }
+}
+
+rect_splitHorizontalLineGap :: proc (rect : Rect, topTakes : i16, gapSize : i16) -> (top : Rect, gap : Rect, bot : Rect) {
+    top, gap = rect_splitHorizontalLine(rect, topTakes)
+    gap, bot = rect_splitHorizontalLine(gap, gapSize)
+    return
 }

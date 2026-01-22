@@ -92,10 +92,8 @@ c_goto :: proc (p : Pos) {
     os.write_string(os.stdout, s)
 }
 
-c_drawString :: proc (rect : Rect, str : string, inner : bool = true) {
-    rect := inner ? rectInner(rect) : rect
-
-    pos := Pos{ rect.x, rect.y }
+c_drawStringAt :: proc (rect : Rect, str : string, pos : Pos) -> (end : Pos) {
+    pos := pos
     c_goto(pos)
 
     br := br_from_rect(rect)
@@ -115,7 +113,28 @@ c_drawString :: proc (rect : Rect, str : string, inner : bool = true) {
         os.write_rune(os.stdout, c)
         pos.x += 1
     }
+
+    end = pos
+    return
 }
+
+c_drawString :: proc (rect : Rect, str : string) {
+    c_drawStringAt(rect, str, rect.xy)
+}
+
+// c_drawStringGood :: proc (rect : Rect, str : string) -> (truncated : bool) {
+//     pos : Pos = rect.xy
+//
+//     for len(str) > 0 {
+//         whitespaceLength := 0
+//         for c in str {
+//             if !is_space(c) { break }
+//             whitespaceLength += 1
+//         }
+//
+//         pos = c_drawStringAt(rect, substring(str, 0, whitespaceLength), pos)
+//     }
+// }
 
 c_drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
     br := br_from_rect(rect)
@@ -174,7 +193,7 @@ c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 
 
 divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0) {
-    gaps := cast(u64)len(coefficients) * gap
+    gaps := (cast(u64)len(coefficients) - 1) * gap
     if gaps >= value { return }
 
     value := value - gaps
@@ -212,6 +231,7 @@ Element :: struct {
     render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
 }
 
+
 RenderingContext :: struct {
     bufferBoxes : Buffer(BoxType),
     screenRect : Rect,
@@ -239,22 +259,33 @@ run :: proc () -> bool {
 
 
     p20 := Element{
+        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+            rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
 
+            c_drawString(rectTitle, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+            c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
+        }
     }
 
     p30 := Element{
-
+        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+            c_drawString({ rect.x, rect.y, rect.z, 1 }, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+            c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+        }
     }
 
     p50 := Element{
-
+        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+            c_drawString({ rect.x, rect.y, rect.z, 1 }, "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC")
+            c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+        }
     }
 
     root := Element{
         children = { &p20, &p30, &p50 },
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             c_drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
-            content := rectInner(ctx.screenRect)
+            content := rect_inner(ctx.screenRect)
 
             width := content.z
 
@@ -262,12 +293,17 @@ run :: proc () -> bool {
             r : [3]u64
             divideBetween(cast(u64)width, c, r[:], 1)
 
-            c_drawBlock(ctx.bufferBoxes, { content.x + cast(i16)r[0], content.y, 1, content.w }, .SingleCurve)
-            c_drawBlock(ctx.bufferBoxes, { content.x + cast(i16)r[0] + cast(i16)r[1], content.y, 1, content.w }, .SingleCurve)
+            rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
+            rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
+
+            c_drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
+            c_drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
+
+            self.children[0]->render(ctx, rectA)
+            self.children[1]->render(ctx, rectB)
+            self.children[2]->render(ctx, rectC)
         }
     }
-
-
 
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
