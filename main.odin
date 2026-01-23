@@ -26,6 +26,7 @@ CellData :: struct {
     r : rune
 }
 
+// NOTE: data is sequential rows
 Buffer :: struct($Item : typeid) {
     rect : Rect,
     data : []Item,
@@ -295,7 +296,7 @@ Element :: struct {
 
 Element_Table :: struct {
     using base : Element,
-    tableCols : [][]int,
+    configuration : Buffer(int),
 }
 
 Element_Label :: struct {
@@ -314,6 +315,8 @@ Element_Label_default :: Element_Label{
         return { cast(i16)len(self.text), 1 }
     },
 }
+
+
 
 
 RenderingContext :: struct {
@@ -355,28 +358,42 @@ run :: proc () -> bool {
 
     p20table := Element_Table{
         children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue },
-        tableCols = { { 0, 1 }, { 2, 3 } },
+        configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } },
 
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             self := cast(^Element_Table)self
 
-            // TODO: we will need to perform a similar procedure per column and per row, and all prior to rendering
-            horizontalOffset : i16 = 0
-            for col in self.tableCols {
-                maxWidth : i16 = 0
-                defer horizontalOffset += (maxWidth + 1)
+            maxCols := make([]i16, self.configuration.rect.z)
+            maxRows := make([]i16, self.configuration.rect.w)
+            defer delete(maxCols)
+            defer delete(maxRows)
 
-                for n in col {
+            for x in 0..<self.configuration.rect.z {
+                for y in 0..<self.configuration.rect.w {
+                    n := buffer_get(self.configuration, { x, y }) or_continue
                     e := self.children[n]
+
                     size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
-                    maxWidth = size.x > maxWidth ? size.x : maxWidth
+                    maxCols[x] = maxCols[x] > size.x ? maxCols[x] : size.x
+                    maxRows[y] = maxRows[y] > size.y ? maxRows[y] : size.y
+                }
+            }
+
+            offset := rect.xy
+            for x in 0..<self.configuration.rect.z {
+                for y in 0..<self.configuration.rect.w {
+                    n := buffer_get(self.configuration, { x, y }) or_continue
+                    e := self.children[n]
+
+                    msize := Pos{ maxCols[x], maxRows[y] }
+                    // size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = msize, widthByHeightPriceRatio = 1 })
+                    e->render(ctx, { offset.x, offset.y, msize.x, msize.y })
+
+                    offset.y += msize.y
                 }
 
-                for n, i in col {
-                    e := self.children[n]
-                    size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
-                    e->render(ctx, { rect.x + horizontalOffset, rect.y + cast(i16)i, maxWidth, 1 })
-                }
+                offset.y = rect.y
+                offset.x += (maxCols[x] + 1)
             }
         }
     }
