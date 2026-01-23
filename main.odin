@@ -8,6 +8,20 @@ import os "core:os/os2"
 
 
 
+MAX_SIZE : Pos : { 1000, 1000 }
+
+Constraints :: struct {
+    minSize : Pos,
+    maxSize : Pos,
+    preferredSize : Pos,
+
+    widthByHeightPriceRatio : f64,
+}
+
+
+
+
+
 CellData :: struct {
     r : rune
 }
@@ -43,6 +57,12 @@ buffer_set :: proc (buffer : Buffer($ty), pos : Pos, value : ty, relative : bool
     buffer.data[index] = value
     ok = true
     return
+}
+
+buffer_reset :: proc (buffer : Buffer($ty), value : ty) {
+    for i in 0..<(buffer.rect.z * buffer.rect.w) {
+        buffer.data[i] = value
+    }
 }
 
 buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos = { 0, 0 }) {
@@ -234,38 +254,65 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
 
 
-Table :: struct {
-    colSizes : []i16,
-    rowSizes : []i16,
+// Table :: struct {
+//     colSizes : []i16,
+//     rowSizes : []i16,
+//
+//     rect : Rect,
+// }
+//
+// table_getRect :: proc (table : Table, index : Pos) -> (rect : Rect, ok : bool = false) {
+//     if cast(int)index.x >= len(table.colSizes) { return }
+//     if cast(int)index.y >= len(table.rowSizes) { return }
+//
+//     offset := Pos{ 0, 0 }
+//     for c in 0..<index.x {
+//         offset.x += table.colSizes[c]
+//     }
+//
+//     for r in 0..<index.y {
+//         offset.y += table.rowSizes[r]
+//     }
+//
+//     rect = Rect{ table.rect.x + offset.x, table.rect.y + offset.y, table.colSizes[index.x], table.rowSizes[index.y] }
+//     rect = rect_intersection(rect, table.rect)
+//     ok = true
+//     return
+// }
 
-    rect : Rect,
+
+
+negotiate_default :: proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+    return constraints.preferredSize
 }
-
-table_getRect :: proc (table : Table, index : Pos) -> (rect : Rect, ok : bool = false) {
-    if cast(int)index.x >= len(table.colSizes) { return }
-    if cast(int)index.y >= len(table.rowSizes) { return }
-
-    offset := Pos{ 0, 0 }
-    for c in 0..<index.x {
-        offset.x += table.colSizes[c]
-    }
-
-    for r in 0..<index.y {
-        offset.y += table.rowSizes[r]
-    }
-
-    rect = Rect{ table.rect.x + offset.x, table.rect.y + offset.y, table.colSizes[index.x], table.rowSizes[index.y] }
-    rect = rect_intersection(rect, table.rect)
-    ok = true
-    return
-}
-
-
-
 
 Element :: struct {
-    children : [3]^Element,
+    children : []^Element,
+
     render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
+    negotiate : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
+}
+
+Element_Table :: struct {
+    using base : Element,
+    tableCols : [][]int,
+}
+
+Element_Label :: struct {
+    using base : Element,
+    text : string,
+}
+
+Element_Label_default :: Element_Label{
+    render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+        self := cast(^Element_Label)self
+        c_drawString(rect, self.text)
+    },
+
+    negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        self := cast(^Element_Label)self
+        return { cast(i16)len(self.text), 1 }
+    },
 }
 
 
@@ -294,24 +341,67 @@ run :: proc () -> bool {
     }
 
 
+    p20table_magic := Element_Label_default
+    p20table_magic.text = "Magic:"
+
+    p20table_type := Element_Label_default
+    p20table_type.text = "Type:"
+
+    p20table_magicValue := Element_Label_default
+    p20table_magicValue.text = "7f 45 4c 46"
+
+    p20table_typeValue := Element_Label_default
+    p20table_typeValue.text = "Shared Object"
+
+    p20table := Element_Table{
+        children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue },
+        tableCols = { { 0, 1 }, { 2, 3 } },
+
+        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+            self := cast(^Element_Table)self
+
+            // TODO: we will need to perform a similar procedure per column and per row, and all prior to rendering
+            horizontalOffset : i16 = 0
+            for col in self.tableCols {
+                maxWidth : i16 = 0
+                defer horizontalOffset += (maxWidth + 1)
+
+                for n in col {
+                    e := self.children[n]
+                    size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
+                    maxWidth = size.x > maxWidth ? size.x : maxWidth
+                }
+
+                for n, i in col {
+                    e := self.children[n]
+                    size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
+                    e->render(ctx, { rect.x + horizontalOffset, rect.y + cast(i16)i, maxWidth, 1 })
+                }
+            }
+        }
+    }
 
     p20 := Element{
+        children = { &p20table },
+
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
 
             c_drawString(rectTitle, "ELF Header")
             c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
 
+            self.children[0]->render(ctx, rest)
+
             // TODO: i currently have very little clue on how to reasonably determine cell size
-            table := Table{ colSizes = { 9, 30 }, rowSizes = { 1, 1, 1 }, rect = rest }
-
-            c_drawString(table_getRect(table, { 0, 0 }) or_else {}, "Magic:")
-            c_drawString(table_getRect(table, { 0, 1 }) or_else {}, "Type:")
-            c_drawString(table_getRect(table, { 0, 2 }) or_else {}, "Machine:")
-
-            c_drawString(table_getRect(table, { 1, 0 }) or_else {}, "7f 45 4c 46 asdvausvdausydvavsdyavsuavysuvvydasvudv")
-            c_drawString(table_getRect(table, { 1, 1 }) or_else {}, "Shared Object")
-            c_drawString(table_getRect(table, { 1, 2 }) or_else {}, "x86-64")
+            // table := Table{ colSizes = { 9, 30 }, rowSizes = { 1, 1, 1 }, rect = rest }
+            //
+            // c_drawString(table_getRect(table, { 0, 0 }) or_else {}, "Magic:")
+            // c_drawString(table_getRect(table, { 0, 1 }) or_else {}, "Type:")
+            // c_drawString(table_getRect(table, { 0, 2 }) or_else {}, "Machine:")
+            //
+            // c_drawString(table_getRect(table, { 1, 0 }) or_else {}, "7f 45 4c 46 asdvausvdausydvavsdyavsuavysuvvydasvudv")
+            // c_drawString(table_getRect(table, { 1, 1 }) or_else {}, "Shared Object")
+            // c_drawString(table_getRect(table, { 1, 2 }) or_else {}, "x86-64")
         }
     }
 
@@ -356,12 +446,11 @@ run :: proc () -> bool {
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
 
-    // c_drawBoxBuffer(box, { 2, 2, 5, 5 }, .Dash4Heavy)
-    // c_drawBoxBuffer(box, box.rect, .SingleCurve)
-    // c_drawBlockBuffer(box, { 9, 9, 6, 6 }, .Dash2)
-
     for _ in 0..<3 {
         c_clear()
+
+        buffer_reset(box, BoxType.None)
+        buffer_reset(screen, '\x00')
 
         ctx := RenderingContext{
             bufferBoxes = box,
