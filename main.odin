@@ -4,20 +4,85 @@ import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
 import os "core:os/os2"
+import "core:math"
 
+
+
+
+/* How the table will work
+
+Negotiating
+Each column and row is either MinimalPossible, MinimalNecessary, or Expand
+    - MinimalPossible   - preferredSize == 1
+    - MinimalNecessary  - preferredSize == rect.z / numCols
+    - Expand            - preferredSize == rect.z / numCols
+
+After determining the preferredSize, table negotiates size with each cell,
+collecting the results. We calculate the maxCol and maxRow for each column
+and row. After that we check whether total of maxCol and total of maxRow
+summed up fit and fill the preferredSize and maxSize provided to the table.
+    - if it is larger than maxSize, we must subtract from cols and rows with
+      the lowest priority (and probably renegotiate with affected cells)
+    - if it is different from preferredSize we do not care, since the result
+      of negotiate is the minimal comfortable space for the element. The space
+      we have calculated is indeed the minimal comfortable
+
+Rendering
+The procedure is very similar, the only difference is that we have an explicit
+rect to fill. We have three cases - 1. Perfect fit. 2. Too small. 3. Too big
+    1. We are done
+    2. We add extra space to cols/rows with Expand -> MinimalNecessary ->
+       MinimalPossible, additionally adjusted by priority
+    3. We remove extra space from Expand -> MinimalNecessary -> MinimalPossible,
+       inversely adjusted by priority
+
+*/
 
 
 
 MAX_SIZE : Pos : { 1000, 1000 }
 
 Constraints :: struct {
-    minSize : Pos,
     maxSize : Pos,
     preferredSize : Pos,
 
     widthByHeightPriceRatio : f64,
 }
 
+
+
+
+Filling :: enum {
+    MinimalPossible,
+    MinimalNecessary,
+    Expand,
+}
+
+Stretching :: struct {
+    priority : int,
+    fill : Filling,
+}
+
+
+
+
+
+AlignmentHorizontal :: enum {
+    Left,
+    Mid,
+    Right,
+}
+
+AlignmentVertical :: enum {
+    Top,
+    Mid,
+    Bot,
+}
+
+Alignment :: struct {
+    horizontal : AlignmentHorizontal,
+    vertical   : AlignmentVertical,
+}
 
 
 
@@ -236,10 +301,12 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
     total : u64 = 0
     for c, i in coefficients {
-        v := u64(f64(value) * (f64(c) / f64(one)))
+        v := u64(f64(value) * (f64(c) / one))
         values[i] = v
         total += v
     }
+
+    if total >= value { return }
 
     // TODO: I'm not sure if this is adequate, we need to prioritize larger coefficients and probably do it without a loop
     rest := value - total
@@ -289,6 +356,7 @@ negotiate_default :: proc (self : ^Element, constraints : Constraints) -> (size 
 
 Element :: struct {
     children : []^Element,
+    stretch : [2]bool,
 
     render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
     negotiate : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
@@ -297,6 +365,9 @@ Element :: struct {
 Element_Table :: struct {
     using base : Element,
     configuration : Buffer(int),
+
+    stretchingCols : []Stretching,
+    stretchingRows : []Stretching,
 }
 
 Element_Label :: struct {
@@ -358,7 +429,11 @@ run :: proc () -> bool {
 
     p20table := Element_Table{
         children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue },
+        stretch = { true, false },
         configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } },
+
+        stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 1, fill = .Expand } },
+        stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } },
 
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             self := cast(^Element_Table)self
@@ -368,16 +443,99 @@ run :: proc () -> bool {
             defer delete(maxCols)
             defer delete(maxRows)
 
+            // TODO: loop in order of multiplicative preference
             for x in 0..<self.configuration.rect.z {
                 for y in 0..<self.configuration.rect.w {
                     n := buffer_get(self.configuration, { x, y }) or_continue
                     e := self.children[n]
 
-                    size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
+                    preferredSize := Pos{ rect.z / self.configuration.rect.z, rect.w / self.configuration.rect.w }
+
+                    if self.stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
+                    if self.stretchingRows[y].fill == .MinimalPossible { preferredSize.y = 1 }
+
+                    // TODO: still not sure about this
+                    wbhRatio := (f64(rect.z)) / (f64(rect.w))
+
+                    size := e->negotiate(Constraints{ maxSize = rect.zw, preferredSize = preferredSize, widthByHeightPriceRatio = wbhRatio })
                     maxCols[x] = maxCols[x] > size.x ? maxCols[x] : size.x
                     maxRows[y] = maxRows[y] > size.y ? maxRows[y] : size.y
                 }
             }
+
+            totalCols : i16 = 0
+            for n in maxCols {
+                totalCols += n
+            }
+
+            totalRows : i16 = 0
+            for n in maxRows {
+                totalRows += n
+            }
+
+
+            // TODO: a lot of doubling
+            priorityCols := make([]u64, self.configuration.rect.z)
+            priorityRows := make([]u64, self.configuration.rect.w)
+            deltaCols := make([]i64, self.configuration.rect.z)
+            deltaRows := make([]i64, self.configuration.rect.w)
+            defer delete(priorityCols)
+            defer delete(priorityRows)
+            defer delete(deltaCols)
+            defer delete(deltaRows)
+
+            for s, i in self.stretchingCols {
+                m : u64 = cast(u64)s.priority * 20
+                switch s.fill {
+                case .MinimalPossible:
+                    m = 1
+                case .MinimalNecessary:
+                    m *= 1
+                case .Expand:
+                    m *= 5
+                }
+
+                priorityCols[i] = m
+            }
+
+            for s, i in self.stretchingRows {
+                m : u64 = cast(u64)s.priority * 20
+                switch s.fill {
+                case .MinimalPossible:
+                    m = 1
+                case .MinimalNecessary:
+                    m *= 1
+                case .Expand:
+                    m *= 5
+                }
+
+                priorityRows[i] = m
+            }
+
+            dc := rect.z - totalCols
+            if dc > 0 && !self.stretch.x { dc = 0 }
+
+            dr := rect.w - totalRows
+            if dr > 0 && !self.stretch.y { dr = 0 }
+
+            divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols)
+            divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows)
+
+            sc : i16 = rect.z > totalCols ? 1 : -1
+            sr : i16 = rect.w > totalRows ? 1 : -1
+
+            for d, i in deltaCols {
+                maxCols[i] += sc * cast(i16)d
+            }
+
+            for d, i in deltaRows {
+                maxRows[i] += sr * cast(i16)d
+            }
+
+
+
+
+
 
             offset := rect.xy
             for x in 0..<self.configuration.rect.z {
@@ -386,6 +544,7 @@ run :: proc () -> bool {
                     e := self.children[n]
 
                     msize := Pos{ maxCols[x], maxRows[y] }
+                    // TODO: maybe a few renegotiation rounds? idk
                     // size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = msize, widthByHeightPriceRatio = 1 })
                     e->render(ctx, { offset.x, offset.y, msize.x, msize.y })
 
@@ -393,7 +552,7 @@ run :: proc () -> bool {
                 }
 
                 offset.y = rect.y
-                offset.x += (maxCols[x] + 1)
+                offset.x += (maxCols[x])
             }
         }
     }
