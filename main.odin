@@ -6,6 +6,12 @@ import lx "core:sys/linux"
 import os "core:os/os2"
 import "core:math"
 
+import str "core:strings"
+import utf8 "core:unicode/utf8"
+
+
+
+
 
 
 
@@ -63,6 +69,14 @@ Stretching :: struct {
     fill : Filling,
 }
 
+
+
+
+Wrapping :: enum {
+    Wrapping,       // word gets cut at the end of the line, gets continued immediately on the next one
+    NoWrapping,     // if word doesn't fit on the current line, move it to the second. If it doesn't fit there either, move back to the first and fall back to Wrapping
+    // Hyphenation,    // Wrapping, but with hyphens
+}
 
 
 
@@ -219,19 +233,258 @@ c_drawString :: proc (rect : Rect, str : string) {
     c_drawStringAt(rect, str, rect.xy)
 }
 
-// c_drawStringGood :: proc (rect : Rect, str : string) -> (truncated : bool) {
-//     pos : Pos = rect.xy
-//
-//     for len(str) > 0 {
-//         whitespaceLength := 0
-//         for c in str {
-//             if !is_space(c) { break }
-//             whitespaceLength += 1
-//         }
-//
-//         pos = c_drawStringAt(rect, substring(str, 0, whitespaceLength), pos)
-//     }
-// }
+Recorder :: struct {
+    rect : Rect,
+    pos  : Pos,
+
+    render : bool,
+}
+
+recorder_start :: proc (r : ^Recorder) {
+    if r.render { c_goto(r.pos) }
+}
+
+recorder_done :: proc (r : Recorder) -> bool {
+    return recorder_remaining(r).y <= 0
+}
+
+recorder_newline :: proc (r : ^Recorder, offset : i16 = 0) -> (ok : bool = false) {
+    if recorder_done(r^) { return }
+    if offset >= r.rect.z { return }
+
+    r.pos.y += 1
+    r.pos.x = r.rect.x + offset
+
+    if r.render { c_goto(r.pos) }
+
+    ok = true
+    return
+}
+
+recorder_remaining :: proc (r : Recorder) -> Pos {
+    return r.rect.xy + r.rect.zw - r.pos
+}
+
+// NOTE: Does NOT add a newline on the end
+
+// 0, text, false
+// n, rem, true
+recorder_writeOnCurrentLine :: proc (r : ^Recorder, text : string) -> (written : i16 = 0, remaining : string, ok : bool = false) {
+    remaining = text
+    if recorder_done(r^) { return }
+
+    rm := recorder_remaining(r^)
+    l := math.min(cast(int)rm.x, len(text))
+
+    taken, _ := str.substring_to(text, l)
+    written = cast(i16)len(taken)
+    remaining, _ = substring_from(text, l)
+
+    if r.render { os.write_string(os.stdout, taken) }
+
+    r.pos.x += cast(i16)l
+
+    ok = true
+    return
+}
+
+recorder_write :: proc (r : ^Recorder, text : string) -> (written : i16 = 0, remaining : string) {
+    remaining = text
+
+    for !recorder_done(r^) && len(remaining) > 0 {
+        w : i16
+        w, remaining, _ = recorder_writeOnCurrentLine(r, remaining)
+        written += w
+        recorder_newline(r, 0)
+    }
+
+    return
+}
+
+recorder_writeRuneOnCurrentLine :: proc (r : ^Recorder, c : rune) -> (ok : bool = false) {
+    if recorder_done(r^) { return }
+    if recorder_remaining(r^).x <= 0 { return }
+
+    if r.render { os.write_rune(os.stdout, c) }
+
+    r.pos.x += 1
+    ok = true
+    return
+}
+
+// TODO: stretching
+drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
+    lineLengths := lineLengths
+
+    if rendering {
+        lineLengths = make([]i16, rect.w)
+        drawText(text, rect, align, wrap, false, lineLengths)
+    }
+
+    defer if rendering {
+        delete(lineLengths)
+    }
+
+    buffer := make([]u8, rect.z * 4)
+    defer delete(buffer)
+    
+    sb := str.builder_from_bytes(buffer)
+
+    State :: enum {
+        SkippingWhitespace,
+        CollectingShortWord,
+        DumpingLargeWord,
+    }
+
+    // ALIGN
+    r := Recorder{ rect, rect.xy, rendering }
+    recorder_start(&r)
+    lineLengths[0] = 0
+
+    loff := -rect.y
+
+    newlineAligned :: proc (r : ^Recorder, lineLengths : []i16, loff : i16, align : Alignment) -> bool {
+        if recorder_remaining(r^).y <= 1 { return false }
+
+        // TODO: calculate offset based off alignment
+        offset := lineLengths[r.pos.y + loff + 1]
+        recorder_newline(r, 0)
+        lineLengths[r.pos.y + loff] = 0
+
+        return true
+    }
+
+    state : State = .SkippingWhitespace
+
+    text := text
+    for len(text) > 0 || str.builder_len(sb) > 0 {
+        advance := true
+
+        c := utf8.rune_at_pos(text, 0)
+        eof := len(text) == 0
+
+        defer if advance {
+            text, _ = substring_from(text, 1)
+        }
+
+        switch state {
+        case .SkippingWhitespace: {
+            if !str.is_space(c) {
+                advance = false
+                state = .CollectingShortWord
+                continue
+            }
+
+            continue
+        }
+        case .CollectingShortWord: {
+            if eof || str.is_space(c) {
+                advance = false
+                state = .SkippingWhitespace
+                defer str.builder_reset(&sb)
+
+                spacebar := lineLengths[r.pos.y + loff] != 0 ? 1 : 0
+
+                if recorder_remaining(r).x >= i16(str.builder_len(sb) + spacebar) {
+                    lineLengths[r.pos.y + loff] += i16(str.builder_len(sb) + spacebar)
+
+                    if spacebar == 1 { recorder_writeOnCurrentLine(&r, " ") }
+                    recorder_writeOnCurrentLine(&r, str.to_string(sb))
+
+                    continue
+                }
+
+
+                fmt.println("WRAP")
+
+                switch wrap {
+                case .NoWrapping: {
+                    if recorder_remaining(r).x < i16(str.builder_len(sb) + 1) {
+                        newlineAligned(&r, lineLengths, loff, align) or_break
+                    }
+                    else {
+                        recorder_writeOnCurrentLine(&r, " ")
+                        lineLengths[r.pos.y + loff] += 1
+                    }
+
+                    recorder_writeOnCurrentLine(&r, str.to_string(sb))
+                }
+                case .Wrapping: {
+                    if recorder_remaining(r).x >= 2 {
+                        recorder_writeOnCurrentLine(&r, " ")
+                        lineLengths[r.pos.y + loff] += 1
+                    }
+                    else {
+                        newlineAligned(&r, lineLengths, loff, align) or_break
+                    }
+
+                    written, remaining, _ := recorder_writeOnCurrentLine(&r, str.to_string(sb))
+                    lineLengths[r.pos.y + loff] += written
+
+                    newlineAligned(&r, lineLengths, loff, align) or_break
+
+                    // NOTE: 2 writes are guaranteed to be enough
+                    written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
+                    lineLengths[r.pos.y + loff] += written
+
+                    continue
+                }
+                }
+            }
+            else {
+                str.write_rune(&sb, c)
+
+                if str.builder_len(sb) >= cast(int)rect.z {
+                    state = .DumpingLargeWord
+                    continue
+                }
+            }
+        }
+        case .DumpingLargeWord: {
+            if str.builder_len(sb) != 0 {
+                defer str.builder_reset(&sb)
+
+                if lineLengths[r.pos.y + loff] != 0 {
+                    if recorder_remaining(r).x >= 2 {
+                        recorder_writeOnCurrentLine(&r, " ")
+                        lineLengths[r.pos.y + loff] += 1
+                    }
+                    else {
+                        newlineAligned(&r, lineLengths, loff, align) or_break
+                    }
+                }
+
+                remaining := str.to_string(sb)
+
+                for !recorder_done(r) && len(remaining) > 0 {
+                    _, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
+                    newlineAligned(&r, lineLengths, loff, align) or_break
+                }
+            }
+
+            if eof { break }
+
+            if str.is_space(c) {
+                advance = false
+                state = .SkippingWhitespace
+                continue
+            }
+
+            ok := recorder_writeRuneOnCurrentLine(&r, c)
+            if !ok {
+                newlineAligned(&r, lineLengths, loff, align) or_break
+
+                ok = recorder_writeRuneOnCurrentLine(&r, c)
+                if !ok { break } // NOTE: should never happen
+            }
+        }
+        }
+    }
+
+    truncated = (len(text) != 0)
+
+    return
+}
 
 c_drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
     br := br_from_rect(rect)
@@ -378,7 +631,7 @@ Element_Label :: struct {
 Element_Label_default :: Element_Label{
     render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
-        c_drawString(rect, self.text)
+        drawText(self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
@@ -396,25 +649,6 @@ RenderingContext :: struct {
 }
 
 run :: proc () -> bool {
-    term : px.termios
-    _ = px.tcgetattr(px.STDIN_FILENO, &term)
-    termRestore := term
-    defer px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &termRestore)
-
-    term.c_lflag -= { .ECHO, .ICANON }
-    px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &term)
-
-
-
-    os.write_string(os.stdout, "\e[?25l")
-    os.write_string(os.stdout, "\e[?1049h")
-
-    defer {
-        os.write_string(os.stdout, "\e[?25h")
-        os.write_string(os.stdout, "\e[?1049l")
-    }
-
-
     p20table_magic := Element_Label_default
     p20table_magic.text = "Magic:"
 
@@ -524,6 +758,7 @@ run :: proc () -> bool {
             sc : i16 = rect.z > totalCols ? 1 : -1
             sr : i16 = rect.w > totalRows ? 1 : -1
 
+            // TODO: this can result in a negative width/height, somehow adjust divideBetween???
             for d, i in deltaCols {
                 maxCols[i] += sc * cast(i16)d
             }
@@ -531,6 +766,7 @@ run :: proc () -> bool {
             for d, i in deltaRows {
                 maxRows[i] += sr * cast(i16)d
             }
+
 
 
 
@@ -567,17 +803,6 @@ run :: proc () -> bool {
             c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
 
             self.children[0]->render(ctx, rest)
-
-            // TODO: i currently have very little clue on how to reasonably determine cell size
-            // table := Table{ colSizes = { 9, 30 }, rowSizes = { 1, 1, 1 }, rect = rest }
-            //
-            // c_drawString(table_getRect(table, { 0, 0 }) or_else {}, "Magic:")
-            // c_drawString(table_getRect(table, { 0, 1 }) or_else {}, "Type:")
-            // c_drawString(table_getRect(table, { 0, 2 }) or_else {}, "Machine:")
-            //
-            // c_drawString(table_getRect(table, { 1, 0 }) or_else {}, "7f 45 4c 46 asdvausvdausydvavsdyavsuavysuvvydasvudv")
-            // c_drawString(table_getRect(table, { 1, 1 }) or_else {}, "Shared Object")
-            // c_drawString(table_getRect(table, { 1, 2 }) or_else {}, "x86-64")
         }
     }
 
@@ -618,6 +843,28 @@ run :: proc () -> bool {
             self.children[2]->render(ctx, rectC)
         }
     }
+
+
+
+    term : px.termios
+    _ = px.tcgetattr(px.STDIN_FILENO, &term)
+    termRestore := term
+    defer px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &termRestore)
+
+    term.c_lflag -= { .ECHO, .ICANON }
+    px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &term)
+
+
+
+    os.write_string(os.stdout, "\e[?25l")
+    os.write_string(os.stdout, "\e[?1049h")
+
+    defer {
+        os.write_string(os.stdout, "\e[?25h")
+        os.write_string(os.stdout, "\e[?1049l")
+    }
+
+
 
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
