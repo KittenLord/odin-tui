@@ -4,10 +4,13 @@ import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
 import os "core:os/os2"
+import os_old "core:os"
 import "core:math"
 
 import str "core:strings"
 import utf8 "core:unicode/utf8"
+
+import "core:log"
 
 
 
@@ -668,8 +671,6 @@ Element_Label_default :: Element_Label{
             _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         }
         
-        fmt.println(rect.zw + increment)
-
         return rect.zw + increment
     },
 }
@@ -683,6 +684,10 @@ RenderingContext :: struct {
 }
 
 run :: proc () -> bool {
+    // when ODIN_DEBUG
+    logFile, _ := os_old.open("./log.txt", os_old.O_CREATE | os_old.O_TRUNC | os_old.O_RDWR)
+    context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Time, .Short_File_Path, .Line, .Procedure })
+
     p20table_magic := Element_Label_default
     p20table_magic.text = "Magic:"
 
