@@ -346,13 +346,16 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
     currentLine : i16 = 0
     maxLine : i16 = 0
+    minOffset : i16 = 0
 
-    newlineAligned :: proc (r : ^Recorder, lineLengths : []i16, loff : i16, currentLine : ^i16, align : Alignment) -> bool {
+    newlineAligned :: proc (r : ^Recorder, lineLengths : []i16, loff : i16, currentLine : ^i16, minOffset : ^i16, align : Alignment) -> bool {
         if recorder_remaining(r^).y <= 1 { return false }
 
         precalculatedLength := lineLengths != nil ? lineLengths[r.pos.y + loff + 1] : 0
         // TODO: calculate offset based off alignment
         offset := precalculatedLength == 0 ? 0 : (precalculatedLength * 0)
+        if offset < minOffset^ { minOffset^ = offset }
+
         recorder_newline(r, offset)
 
         if lineLengths != nil { lineLengths[r.pos.y + loff] = 0 }
@@ -414,7 +417,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                 switch wrap {
                 case .NoWrapping: {
                     if recorder_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
                     }
                     else if spacebar == 1 {
                         recorder_writeOnCurrentLine(&r, " ")
@@ -430,13 +433,13 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                     else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
                     }
 
                     written, remaining, _ := recorder_writeOnCurrentLine(&r, str.to_string(sb))
                     increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
 
-                    newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break
+                    newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
 
                     // NOTE: 2 writes are guaranteed to be enough
                     written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
@@ -465,7 +468,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                     else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
                     }
                 }
 
@@ -473,7 +476,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
                 for !recorder_done(r) && len(remaining) > 0 {
                     _, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
-                    if len(remaining) > 0 { newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break }
+                    if len(remaining) > 0 { newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break }
                 }
             }
 
@@ -487,7 +490,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
             ok := recorder_writeRuneOnCurrentLine(&r, c)
             if !ok {
-                newlineAligned(&r, lineLengths, loff, &currentLine, align) or_break
+                newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
 
                 ok = recorder_writeRuneOnCurrentLine(&r, c)
                 if !ok { break } // NOTE: should never happen
@@ -496,8 +499,9 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
         }
     }
 
-    // TODO: origin may have moved, though it doesn't change much i think
-    actualRect = { rect.x, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
+    if currentLine != 0 { recorder_newline(&r) }
+
+    actualRect = { rect.x + minOffset, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
     truncated = (len(text) != 0)
 
     return
@@ -618,16 +622,55 @@ Element_Label :: struct {
     text : string,
 }
 
+// TODO: THIS IS INCORRECT, JUST TEMPORARY
+buyIncrement :: proc (base : Pos, old : Pos, max : Pos, widthByHeightPriceRatio : f64) -> (new : Pos) {
+    new = old
+    if base + old == max { return }
+
+    heightByHeightPriceRatio : f64 = 1
+
+    costH := cast(f64)old.y * heightByHeightPriceRatio
+    costW := cast(f64)old.x * widthByHeightPriceRatio
+
+    ncostH := cast(f64)(old.y + 1) * heightByHeightPriceRatio
+    ncostW := cast(f64)(old.x + 1) * widthByHeightPriceRatio
+
+    if base.y + old.y + 1 > max.y { ncostH = 99999999999 }
+    if base.x + old.x + 1 > max.x { ncostW = 99999999999 }
+
+    if (ncostH + costW) < (costH + ncostW) {
+        new.y += 1
+    }
+    else {
+        new.x += 1
+    }
+
+    return
+}
+
 Element_Label_default :: Element_Label{
     render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
-        drawText(self.text, rect, { .Left, .Top }, .NoWrapping, rendering = false)
         drawText(self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
         self := cast(^Element_Label)self
-        return { cast(i16)len(self.text), 1 }
+
+        referenceRect := constraints.preferredSize
+        rect, truncated := drawText(self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        increment := Pos{ 0, 0 }
+
+        for truncated && (rect.zw + increment) != constraints.maxSize {
+            // TODO: increase increment
+            increment = buyIncrement(rect.zw, increment, constraints.maxSize, constraints.widthByHeightPriceRatio)
+
+            _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        }
+        
+        fmt.println(rect.zw + increment)
+
+        return rect.zw + increment
     },
 }
 
@@ -788,7 +831,7 @@ run :: proc () -> bool {
     p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20 := Element{
-        children = { &p20text },
+        children = { &p20table },
 
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
