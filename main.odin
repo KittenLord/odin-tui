@@ -316,7 +316,7 @@ recorder_writeRuneOnCurrentLine :: proc (r : ^Recorder, c : rune) -> (ok : bool 
     return
 }
 
-// TODO: stretching
+// TODO: this should probably be entirely rewritten i dont like how hacky this is
 drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
     lineLengths := lineLengths
 
@@ -384,6 +384,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
 
 
+    singleCharacterTruncated := false
     text := text
     mainLoop: for len(text) > 0 || str.builder_len(sb) > 0 {
         advance := true
@@ -409,7 +410,6 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
             if eof || str.is_space(c) {
                 advance = false
                 state = .SkippingWhitespace
-                defer str.builder_reset(&sb)
 
                 spacebar := currentLine != 0 ? 1 : 0
 
@@ -418,6 +418,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
                     if spacebar == 1 { recorder_writeOnCurrentLine(&r, " ") }
                     recorder_writeOnCurrentLine(&r, str.to_string(sb))
+                    str.builder_reset(&sb)
 
                     continue mainLoop
                 }
@@ -426,6 +427,11 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                 switch wrap {
                 case .NoWrapping: {
                     if recorder_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
+                        if recorder_remaining(r).y <= 1 {
+                            state = .DumpingLargeWord
+                            continue mainLoop
+                        }
+
                         newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                     }
                     else if spacebar == 1 {
@@ -435,25 +441,10 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
                     recorder_writeOnCurrentLine(&r, str.to_string(sb))
                     increaseLineLength(cast(i16)len(str.to_string(sb)), r, lineLengths, loff, &currentLine, &maxLine)
+                    str.builder_reset(&sb)
                 }
                 case .Wrapping: {
-                    if recorder_remaining(r).x >= 2 {
-                        recorder_writeOnCurrentLine(&r, " ")
-                        increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
-                    }
-                    else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-                    }
-
-                    written, remaining, _ := recorder_writeOnCurrentLine(&r, str.to_string(sb))
-                    increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
-
-                    newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-
-                    // NOTE: 2 writes are guaranteed to be enough
-                    written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
-                    increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
-
+                    state = .DumpingLargeWord
                     continue mainLoop
                 }
                 }
@@ -505,10 +496,16 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
             }
 
             ok := recorder_writeRuneOnCurrentLine(&r, c)
+            if ok { increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine) }
             if !ok {
+                singleCharacterTruncated = true
                 newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
 
                 ok = recorder_writeRuneOnCurrentLine(&r, c)
+                if ok {
+                    singleCharacterTruncated = false
+                    increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
+                }
                 if !ok { break mainLoop } // NOTE: should never happen
             }
         }
@@ -518,7 +515,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
     if currentLine != 0 { recorder_newline(&r) }
 
     actualRect = { rect.x + minOffset, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
-    truncated = (len(text) != 0 || str.builder_len(sb) != 0)
+    truncated = (len(text) != 0 || str.builder_len(sb) != 0 || singleCharacterTruncated)
 
     return
 }
@@ -579,7 +576,7 @@ c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 
 
 
-divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0) {
+divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0, maxValues : []u64 = nil) {
     gaps := (cast(u64)len(coefficients) - 1) * gap
     if gaps >= value { return }
 
@@ -592,6 +589,9 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
     total : u64 = 0
     for c, i in coefficients {
         v := u64(f64(value) * (f64(c) / one))
+        mv := maxValues == nil ? v : maxValues[i]
+        v = math.min(v, mv)
+
         values[i] = v
         total += v
     }
@@ -600,10 +600,15 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
     // TODO: I'm not sure if this is adequate, we need to prioritize larger coefficients and probably do it without a loop
     rest := value - total
-    for rest > 0 {
+    prest := rest + 1
+    for rest > 0 && prest != rest {
+        prest = rest
+
         for c, i in coefficients {
             if rest == 0 { break }
             if c == 0 { continue }
+            if maxValues != nil && values[i] >= maxValues[i] { continue }
+
             values[i] += 1
             rest -= 1
         }
@@ -1008,7 +1013,7 @@ run :: proc () -> bool {
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
 
-    for _ in 0..<6 {
+    for _ in 0..<20 {
         c_clear()
 
         buffer_reset(box, BoxType.None)
