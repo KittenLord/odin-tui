@@ -6,6 +6,7 @@ import lx "core:sys/linux"
 import os "core:os/os2"
 import os_old "core:os"
 import "core:math"
+import "core:slice"
 
 import str "core:strings"
 import utf8 "core:unicode/utf8"
@@ -478,8 +479,15 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                 remaining := str.to_string(sb)
 
                 for !recorder_done(r) && len(remaining) > 0 {
-                    _, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
-                    if len(remaining) > 0 { newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break }
+                    written : i16
+                    written, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
+                    increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
+
+                    if len(remaining) > 0 {
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                        written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
+                        increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
+                    }
                 }
             }
 
@@ -605,11 +613,68 @@ negotiate_default :: proc (self : ^Element, constraints : Constraints) -> (size 
 }
 
 Element :: struct {
+    kind : string,
+
     children : []^Element,
+    parent : ^Element,
     stretch : [2]bool,
 
     render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
     negotiate : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
+}
+
+element_assignParentRecurse :: proc (root : ^Element) {
+    for e in root.children {
+        e.parent = root
+        element_assignParentRecurse(e)
+    }
+}
+
+element_getParentIndex :: proc (target : ^Element) -> int {
+    if target.parent == nil || target.parent == target { return 0 }
+
+    // NOTE: should never return -1 if set up correctly
+    i, s := slice.linear_search(target.parent.children, target)
+    if !s {
+        panic("element_assignParentRecurse")
+    }
+    return i
+}
+
+element_getParentIndexSameKind :: proc (target : ^Element) -> int {
+    if target.parent == nil || target.parent == target { return 0 }
+
+    i := 0
+    for e in target.parent.children {
+        if e == target { return i }
+        if e.kind == target.kind { i += 1 }
+    }
+
+    panic("element_assignParentRecurse")
+}
+
+element_getFullKindName :: proc (target : ^Element) -> string {
+    b, _ := str.builder_make_none()
+    l : [dynamic]^Element
+
+    target := target
+    append(&l, target)
+    for target.parent != nil && target.parent != target {
+        target = target.parent
+        append(&l, target)
+    }
+
+    slice.reverse(l[:])
+
+    for e, i in l {
+        if i != 0 {
+            fmt.sbprint(&b, " > ")
+        }
+
+        fmt.sbprintf(&b, "%v #%v", e.kind, element_getParentIndexSameKind(e))
+    }
+
+    return str.to_string(b)
 }
 
 Element_Table :: struct {
@@ -652,13 +717,24 @@ buyIncrement :: proc (base : Pos, old : Pos, max : Pos, widthByHeightPriceRatio 
 }
 
 Element_Label_default :: Element_Label{
+    kind = "Label",
+
     render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
+
+        name := element_getFullKindName(self)
+        defer delete(name)
+
+        log.debugf("[%v] got rect %v", name, rect)
+
         drawText(self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
         self := cast(^Element_Label)self
+
+        name := element_getFullKindName(self)
+        defer delete(name)
 
         referenceRect := constraints.preferredSize
         rect, truncated := drawText(self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
@@ -670,6 +746,8 @@ Element_Label_default :: Element_Label{
 
             _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         }
+
+        log.debugf("[%v] got constraints %v %v, returned %v", name, constraints.preferredSize, constraints.maxSize, rect.zw + increment)
         
         return rect.zw + increment
     },
@@ -686,7 +764,7 @@ RenderingContext :: struct {
 run :: proc () -> bool {
     // when ODIN_DEBUG
     logFile, _ := os_old.open("./log.txt", os_old.O_CREATE | os_old.O_TRUNC | os_old.O_RDWR)
-    context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Time, .Short_File_Path, .Line, .Procedure })
+    context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Short_File_Path, .Line })
 
     p20table_magic := Element_Label_default
     p20table_magic.text = "Magic:"
@@ -701,6 +779,8 @@ run :: proc () -> bool {
     p20table_typeValue.text = "Shared Object"
 
     p20table := Element_Table{
+        kind = "Table",
+
         children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue },
         stretch = { true, false },
         configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } },
@@ -836,6 +916,8 @@ run :: proc () -> bool {
     p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20 := Element{
+        kind = "P20",
+
         children = { &p20table },
 
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
@@ -849,6 +931,8 @@ run :: proc () -> bool {
     }
 
     p30 := Element{
+        kind = "P30",
+
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             c_drawString({ rect.x, rect.y, rect.z, 1 }, "Program header")
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
@@ -856,6 +940,8 @@ run :: proc () -> bool {
     }
 
     p50 := Element{
+        kind = "P50",
+
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             c_drawString({ rect.x, rect.y, rect.z, 1 }, "Segment content")
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
@@ -863,6 +949,8 @@ run :: proc () -> bool {
     }
 
     root := Element{
+        kind = "Root",
+
         children = { &p20, &p30, &p50 },
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             c_drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
@@ -921,6 +1009,8 @@ run :: proc () -> bool {
             bufferBoxes = box,
             screenRect = getScreenRect() or_break
         }
+
+        element_assignParentRecurse(&root)
         root->render(ctx, ctx.screenRect)
 
         c_resolveBoxBuffer(box, screen)
