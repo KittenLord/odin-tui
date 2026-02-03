@@ -334,12 +334,6 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
     
     sb := str.builder_from_bytes(buffer)
 
-    State :: enum {
-        SkippingWhitespace,
-        CollectingShortWord,
-        DumpingLargeWord,
-    }
-
     // ALIGN
     r := Recorder{ rect, rect.xy, rendering }
     recorder_start(&r)
@@ -377,10 +371,21 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
         if currentLine^ > maxLine^ { maxLine^ = currentLine^ }
     }
 
+
+
+
+    State :: enum {
+        SkippingWhitespace,
+        CollectingShortWord,
+        DumpingLargeWord,
+    }
+
     state : State = .SkippingWhitespace
 
+
+
     text := text
-    for len(text) > 0 || str.builder_len(sb) > 0 {
+    mainLoop: for len(text) > 0 || str.builder_len(sb) > 0 {
         advance := true
 
         c := utf8.rune_at_pos(text, 0)
@@ -395,10 +400,10 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
             if !str.is_space(c) {
                 advance = false
                 state = .CollectingShortWord
-                continue
+                continue mainLoop
             }
 
-            continue
+            continue mainLoop
         }
         case .CollectingShortWord: {
             if eof || str.is_space(c) {
@@ -414,14 +419,14 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                     if spacebar == 1 { recorder_writeOnCurrentLine(&r, " ") }
                     recorder_writeOnCurrentLine(&r, str.to_string(sb))
 
-                    continue
+                    continue mainLoop
                 }
 
 
                 switch wrap {
                 case .NoWrapping: {
                     if recorder_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                     }
                     else if spacebar == 1 {
                         recorder_writeOnCurrentLine(&r, " ")
@@ -437,19 +442,19 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                     else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                     }
 
                     written, remaining, _ := recorder_writeOnCurrentLine(&r, str.to_string(sb))
                     increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
 
-                    newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                    newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
 
                     // NOTE: 2 writes are guaranteed to be enough
                     written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
                     increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
 
-                    continue
+                    continue mainLoop
                 }
                 }
             }
@@ -458,53 +463,53 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
 
                 if str.builder_len(sb) >= cast(int)rect.z {
                     state = .DumpingLargeWord
-                    continue
+                    continue mainLoop
                 }
             }
         }
         case .DumpingLargeWord: {
             if str.builder_len(sb) != 0 {
-                defer str.builder_reset(&sb)
-
                 if currentLine != 0 {
                     if recorder_remaining(r).x >= 2 {
                         recorder_writeOnCurrentLine(&r, " ")
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                     else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                     }
                 }
 
                 remaining := str.to_string(sb)
 
-                for !recorder_done(r) && len(remaining) > 0 {
+                for len(remaining) > 0 {
                     written : i16
                     written, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
                     increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
 
                     if len(remaining) > 0 {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                         written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
                         increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                 }
+
+                str.builder_reset(&sb)
             }
 
-            if eof { break }
+            if eof { break mainLoop }
 
             if str.is_space(c) {
                 advance = false
                 state = .SkippingWhitespace
-                continue
+                continue mainLoop
             }
 
             ok := recorder_writeRuneOnCurrentLine(&r, c)
             if !ok {
-                newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break
+                newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
 
                 ok = recorder_writeRuneOnCurrentLine(&r, c)
-                if !ok { break } // NOTE: should never happen
+                if !ok { break mainLoop } // NOTE: should never happen
             }
         }
         }
@@ -513,7 +518,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
     if currentLine != 0 { recorder_newline(&r) }
 
     actualRect = { rect.x + minOffset, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
-    truncated = (len(text) != 0)
+    truncated = (len(text) != 0 || str.builder_len(sb) != 0)
 
     return
 }
@@ -739,15 +744,19 @@ Element_Label_default :: Element_Label{
         referenceRect := constraints.preferredSize
         rect, truncated := drawText(self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         increment := Pos{ 0, 0 }
+        log.debugf("[%v] got constraints %v %v", name, constraints.preferredSize, constraints.maxSize)
+        log.debugf("truncated %v", truncated)
 
         for truncated && (rect.zw + increment) != constraints.maxSize {
             // TODO: increase increment
             increment = buyIncrement(rect.zw, increment, constraints.maxSize, constraints.widthByHeightPriceRatio)
+            log.debugf("increment %v", increment)
 
             _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         }
 
-        log.debugf("[%v] got constraints %v %v, returned %v", name, constraints.preferredSize, constraints.maxSize, rect.zw + increment)
+        log.debugf("truncated %v", truncated)
+        log.debugf("returned %v", rect.zw + increment)
         
         return rect.zw + increment
     },
