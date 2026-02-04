@@ -418,8 +418,8 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
     total : u64 = 0
     for c, i in coefficients {
-        v := u64(f64(value) * (f64(c) / one))
-        mv := maxValues == nil ? v : maxValues[i]
+        v  := u64(f64(value) * (f64(c) / one))
+        mv := maxValues != nil ? maxValues[i] : v
         v = math.min(v, mv)
 
         values[i] = v
@@ -504,7 +504,7 @@ run :: proc () -> bool {
     p20table.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
     p20table.stretch = { true, false }
     p20table.configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } }
-    p20table.stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 1, fill = .Expand } }
+    p20table.stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 5, fill = .Expand } }
     p20table.stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } }
 
     p20text := Element_Label_default
@@ -513,7 +513,7 @@ run :: proc () -> bool {
     p20 := Element{
         kind = "P20",
 
-        children = { &p20text },
+        children = { &p20table },
 
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)

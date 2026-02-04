@@ -156,8 +156,6 @@ Element_Label_default :: Element_Label{
         name := element_getFullKindName(self)
         defer delete(name)
 
-        log.debugf("[%v] got rect %v", name, rect)
-
         drawText(self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
@@ -170,19 +168,13 @@ Element_Label_default :: Element_Label{
         referenceRect := constraints.preferredSize
         rect, truncated := drawText(self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         increment := Pos{ 0, 0 }
-        log.debugf("[%v] got constraints %v %v", name, constraints.preferredSize, constraints.maxSize)
-        log.debugf("truncated %v", truncated)
 
         for truncated && (rect.zw + increment) != constraints.maxSize {
             // TODO: increase increment
             increment = buyIncrement(rect.zw, increment, constraints.maxSize, constraints.widthByHeightPriceRatio)
-            log.debugf("increment %v", increment)
 
             _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         }
-
-        log.debugf("truncated %v", truncated)
-        log.debugf("returned %v", rect.zw + increment)
         
         return rect.zw + increment
     },
@@ -192,20 +184,67 @@ Element_Label_default :: Element_Label{
 Element_Table_default :: Element_Table{
     kind = "Table",
 
-    // children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue },
-    // stretch = { true, false },
-    // configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } },
-
-    // stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 1, fill = .Expand } },
-    // stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } },
-
     render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
         self := cast(^Element_Table)self
 
         maxCols := make([]i16, self.configuration.rect.z)
         maxRows := make([]i16, self.configuration.rect.w)
+        limCols := make([]i16, self.configuration.rect.z)
+        limRows := make([]i16, self.configuration.rect.w)
         defer delete(maxCols)
         defer delete(maxRows)
+        defer delete(limCols)
+        defer delete(limRows)
+
+        capCols := make([]u64, self.configuration.rect.z)
+        capRows := make([]u64, self.configuration.rect.w)
+        defer delete(capCols)
+        defer delete(capRows)
+
+
+        priorityCols := make([]u64, self.configuration.rect.z)
+        priorityRows := make([]u64, self.configuration.rect.w)
+        deltaCols := make([]i64, self.configuration.rect.z)
+        deltaRows := make([]i64, self.configuration.rect.w)
+        defer delete(priorityCols)
+        defer delete(priorityRows)
+        defer delete(deltaCols)
+        defer delete(deltaRows)
+
+
+
+        for s, i in self.stretchingCols {
+            priorityCols[i] = calculatePriority(s)
+        }
+
+        for s, i in self.stretchingRows {
+            priorityRows[i] = calculatePriority(s)
+        }
+
+
+
+        calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
+            m : u64 = math.max(cast(u64)s.priority, 1) * 20
+            switch s.fill {
+            case .MinimalPossible:
+                m = 1
+            case .MinimalNecessary:
+                m *= 1
+            case .Expand:
+                m *= 5
+            }
+
+            return m
+        }
+
+
+        for &m, i in maxCols {
+            m = 0
+        }
+
+        for &m, i in maxRows {
+            m = 0
+        }
 
         // TODO: loop in order of multiplicative preference
         for x in 0..<self.configuration.rect.z {
@@ -227,54 +266,8 @@ Element_Table_default :: Element_Table{
             }
         }
 
-        totalCols : i16 = 0
-        for n in maxCols {
-            totalCols += n
-        }
-
-        totalRows : i16 = 0
-        for n in maxRows {
-            totalRows += n
-        }
-
-
-        // TODO: a lot of doubling
-        priorityCols := make([]u64, self.configuration.rect.z)
-        priorityRows := make([]u64, self.configuration.rect.w)
-        deltaCols := make([]i64, self.configuration.rect.z)
-        deltaRows := make([]i64, self.configuration.rect.w)
-        defer delete(priorityCols)
-        defer delete(priorityRows)
-        defer delete(deltaCols)
-        defer delete(deltaRows)
-
-        for s, i in self.stretchingCols {
-            m : u64 = cast(u64)s.priority * 20
-            switch s.fill {
-            case .MinimalPossible:
-                m = 1
-            case .MinimalNecessary:
-                m *= 1
-            case .Expand:
-                m *= 5
-            }
-
-            priorityCols[i] = m
-        }
-
-        for s, i in self.stretchingRows {
-            m : u64 = cast(u64)s.priority * 20
-            switch s.fill {
-            case .MinimalPossible:
-                m = 1
-            case .MinimalNecessary:
-                m *= 1
-            case .Expand:
-                m *= 5
-            }
-
-            priorityRows[i] = m
-        }
+        totalCols := math.sum(maxCols)
+        totalRows := math.sum(maxRows)
 
         dc := rect.z - totalCols
         if dc > 0 && !self.stretch.x { dc = 0 }
@@ -282,23 +275,38 @@ Element_Table_default :: Element_Table{
         dr := rect.w - totalRows
         if dr > 0 && !self.stretch.y { dr = 0 }
 
-        divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols)
-        divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows)
+        lc := dc < 0 ? capCols : nil
+        lr := dr < 0 ? capRows : nil
 
-        sc : i16 = rect.z > totalCols ? 1 : -1
-        sr : i16 = rect.w > totalRows ? 1 : -1
+        for &c, i in capCols {
+            c = cast(u64)math.abs(maxCols[i])
+        }
 
-        // TODO: this can result in a negative width/height, somehow adjust divideBetween???
+        for &c, i in capRows {
+            c = cast(u64)math.abs(maxRows[i])
+        }
+
+        divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols, maxValues = lc)
+        divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows, maxValues = lr)
+
+        sc := sign_i16(dc)
+        sr := sign_i16(dr)
+
+
         for d, i in deltaCols {
-            maxCols[i] += sc * cast(i16)d
+            limCols[i] = maxCols[i] + (sc * cast(i16)d)
         }
 
         for d, i in deltaRows {
-            maxRows[i] += sr * cast(i16)d
+            limRows[i] = maxRows[i] + (sr * cast(i16)d)
         }
 
+        log.debugf("cap %v %v", lc, lr)
 
+        log.debugf("signs %v %v delta %v %v max %v %v lim %v %v", sc, sr, dc, dr, maxCols, maxRows, limCols, limRows)
+        log.debugf("delta l %v %v", deltaCols, deltaRows)
 
+        log.debugf("prio %v %v", priorityCols, priorityRows)
 
 
 
@@ -309,7 +317,7 @@ Element_Table_default :: Element_Table{
                 n := buffer_get(self.configuration, { x, y }) or_continue
                 e := self.children[n]
 
-                msize := Pos{ maxCols[x], maxRows[y] }
+                msize := Pos{ limCols[x], limRows[y] }
                 // TODO: maybe a few renegotiation rounds? idk
                 // size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = msize, widthByHeightPriceRatio = 1 })
                 e->render(ctx, { offset.x, offset.y, msize.x, msize.y })
@@ -318,7 +326,7 @@ Element_Table_default :: Element_Table{
             }
 
             offset.y = rect.y
-            offset.x += (maxCols[x])
+            offset.x += (limCols[x])
         }
     }
 }
