@@ -520,11 +520,11 @@ run :: proc () -> bool {
 
             label := Element_Label_default
             label.text = "ELF Header"
-            label->render(ctx, rectTitle)
+            element_render(&label, ctx, rectTitle)
 
             c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
 
-            self.children[0]->render(ctx, rest)
+            element_render(self.children[0], ctx, rest)
         }
     }
 
@@ -534,7 +534,7 @@ run :: proc () -> bool {
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             label := Element_Label_default
             label.text = "Program header"
-            label->render(ctx, { rect.x, rect.y, rect.z, 1 })
+            element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
@@ -546,7 +546,7 @@ run :: proc () -> bool {
         render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
             label := Element_Label_default
             label.text = "Segment content"
-            label->render(ctx, { rect.x, rect.y, rect.z, 1 })
+            element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
             c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
@@ -572,9 +572,9 @@ run :: proc () -> bool {
             c_drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
             c_drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
 
-            self.children[0]->render(ctx, rectA)
-            self.children[1]->render(ctx, rectB)
-            self.children[2]->render(ctx, rectC)
+            element_render(self.children[0], ctx, rectA)
+            element_render(self.children[1], ctx, rectB)
+            element_render(self.children[2], ctx, rectC)
         }
     }
 
@@ -615,7 +615,7 @@ run :: proc () -> bool {
         }
 
         element_assignParentRecurse(&root)
-        root->render(ctx, ctx.screenRect)
+        element_render(&root, ctx, ctx.screenRect)
 
         c_resolveBoxBuffer(box, screen)
         buffer_present(screen)

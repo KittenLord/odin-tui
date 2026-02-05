@@ -22,8 +22,19 @@ Element :: struct {
     parent : ^Element,
     stretch : [2]bool,
 
+    lastRenderedRect : Rect,
+
     render : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
     negotiate : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
+}
+
+element_render :: proc (e : ^Element, ctx : RenderingContext, rect : Rect) {
+    e.lastRenderedRect = rect
+    e->render(ctx, rect)
+}
+
+element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
+    return e->negotiate(constraints)
 }
 
 
@@ -181,6 +192,17 @@ Element_Label_default :: Element_Label{
 }
 
 
+/*
+
+How do we distribute space
+
+1. We have some width to distribute
+2. We loop over items in order of their priority
+3. We negotiate with items using preferredSize = remainingSpace / remainingItems, maxSize = totalSpace
+
+*/
+
+
 Element_Table_default :: Element_Table{
     kind = "Table",
 
@@ -202,16 +224,17 @@ Element_Table_default :: Element_Table{
         defer delete(capRows)
 
 
-        priorityCols := make([]u64, self.configuration.rect.z)
-        priorityRows := make([]u64, self.configuration.rect.w)
         deltaCols := make([]i64, self.configuration.rect.z)
         deltaRows := make([]i64, self.configuration.rect.w)
-        defer delete(priorityCols)
-        defer delete(priorityRows)
         defer delete(deltaCols)
         defer delete(deltaRows)
 
 
+
+        priorityCols := make([]u64, self.configuration.rect.z)
+        priorityRows := make([]u64, self.configuration.rect.w)
+        defer delete(priorityCols)
+        defer delete(priorityRows)
 
         for s, i in self.stretchingCols {
             priorityCols[i] = calculatePriority(s)
@@ -260,7 +283,7 @@ Element_Table_default :: Element_Table{
                 // TODO: still not sure about this
                 wbhRatio := (f64(rect.z)) / (f64(rect.w))
 
-                size := e->negotiate(Constraints{ maxSize = rect.zw, preferredSize = preferredSize, widthByHeightPriceRatio = wbhRatio })
+                size := element_negotiate(e, Constraints{ maxSize = rect.zw, preferredSize = preferredSize, widthByHeightPriceRatio = wbhRatio })
                 maxCols[x] = maxCols[x] > size.x ? maxCols[x] : size.x
                 maxRows[y] = maxRows[y] > size.y ? maxRows[y] : size.y
             }
@@ -320,7 +343,8 @@ Element_Table_default :: Element_Table{
                 msize := Pos{ limCols[x], limRows[y] }
                 // TODO: maybe a few renegotiation rounds? idk
                 // size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = msize, widthByHeightPriceRatio = 1 })
-                e->render(ctx, { offset.x, offset.y, msize.x, msize.y })
+                
+                element_render(e, ctx, { offset.x, offset.y, msize.x, msize.y })
 
                 offset.y += msize.y
             }
