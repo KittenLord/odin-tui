@@ -182,8 +182,8 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
     sb := str.builder_from_bytes(buffer)
 
     // ALIGN
-    r := Recorder{ rect, rect.xy, rendering, ctx == nil ? nil : ctx.commandBuffer }
-    recorder_start(&r)
+    r := Writer{ rect, rect.xy, rendering, ctx == nil ? nil : ctx.commandBuffer }
+    writer_start(&r)
 
     if lineLengths != nil { lineLengths[0] = 0 }
 
@@ -193,15 +193,15 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
     maxLine : i16 = 0
     minOffset : i16 = 0
 
-    newlineAligned :: proc (r : ^Recorder, lineLengths : []i16, loff : i16, currentLine : ^i16, minOffset : ^i16, align : Alignment) -> bool {
-        if recorder_remaining(r^).y <= 1 { return false }
+    newlineAligned :: proc (r : ^Writer, lineLengths : []i16, loff : i16, currentLine : ^i16, minOffset : ^i16, align : Alignment) -> bool {
+        if writer_remaining(r^).y <= 1 { return false }
 
         precalculatedLength := lineLengths != nil ? lineLengths[r.pos.y + loff + 1] : 0
         // TODO: calculate offset based off alignment
         offset := precalculatedLength == 0 ? 0 : (precalculatedLength * 0)
         if offset < minOffset^ { minOffset^ = offset }
 
-        recorder_newline(r, offset)
+        writer_newline(r, offset)
 
         if lineLengths != nil { lineLengths[r.pos.y + loff] = 0 }
         currentLine^ = 0
@@ -209,7 +209,7 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
         return true
     }
 
-    increaseLineLength :: proc (value : i16, r : Recorder, lineLengths : []i16, loff : i16, currentLine : ^i16, maxLine : ^i16) {
+    increaseLineLength :: proc (value : i16, r : Writer, lineLengths : []i16, loff : i16, currentLine : ^i16, maxLine : ^i16) {
         if lineLengths != nil {
             lineLengths[r.pos.y + loff] += value
         }
@@ -260,11 +260,11 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
 
                 spacebar := currentLine != 0 ? 1 : 0
 
-                if recorder_remaining(r).x >= i16(str.builder_len(sb) + spacebar) {
+                if writer_remaining(r).x >= i16(str.builder_len(sb) + spacebar) {
                     increaseLineLength(i16(str.builder_len(sb) + spacebar), r, lineLengths, loff, &currentLine, &maxLine)
 
-                    if spacebar == 1 { recorder_writeOnCurrentLine(&r, " ") }
-                    recorder_writeOnCurrentLine(&r, str.to_string(sb))
+                    if spacebar == 1 { writer_writeOnCurrentLine(&r, " ") }
+                    writer_writeOnCurrentLine(&r, str.to_string(sb))
                     str.builder_reset(&sb)
 
                     continue mainLoop
@@ -273,8 +273,8 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
 
                 switch wrap {
                 case .NoWrapping: {
-                    if recorder_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
-                        if recorder_remaining(r).y <= 1 {
+                    if writer_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
+                        if writer_remaining(r).y <= 1 {
                             state = .DumpingLargeWord
                             continue mainLoop
                         }
@@ -282,11 +282,11 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
                         newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
                     }
                     else if spacebar == 1 {
-                        recorder_writeOnCurrentLine(&r, " ")
+                        writer_writeOnCurrentLine(&r, " ")
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
 
-                    recorder_writeOnCurrentLine(&r, str.to_string(sb))
+                    writer_writeOnCurrentLine(&r, str.to_string(sb))
                     increaseLineLength(cast(i16)len(str.to_string(sb)), r, lineLengths, loff, &currentLine, &maxLine)
                     str.builder_reset(&sb)
                 }
@@ -308,8 +308,8 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
         case .DumpingLargeWord: {
             if str.builder_len(sb) != 0 {
                 if currentLine != 0 {
-                    if recorder_remaining(r).x >= 2 {
-                        recorder_writeOnCurrentLine(&r, " ")
+                    if writer_remaining(r).x >= 2 {
+                        writer_writeOnCurrentLine(&r, " ")
                         increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                     else {
@@ -321,12 +321,12 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
 
                 for len(remaining) > 0 {
                     written : i16
-                    written, remaining, _ = recorder_writeOnCurrentLine(&r, remaining)
+                    written, remaining, _ = writer_writeOnCurrentLine(&r, remaining)
                     increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
 
                     if len(remaining) > 0 {
                         newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-                        written, _, _ = recorder_writeOnCurrentLine(&r, remaining)
+                        written, _, _ = writer_writeOnCurrentLine(&r, remaining)
                         increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
                     }
                 }
@@ -342,13 +342,13 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
                 continue mainLoop
             }
 
-            ok := recorder_writeRuneOnCurrentLine(&r, c)
+            ok := writer_writeRuneOnCurrentLine(&r, c)
             if ok { increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine) }
             if !ok {
                 singleCharacterTruncated = true
                 newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
 
-                ok = recorder_writeRuneOnCurrentLine(&r, c)
+                ok = writer_writeRuneOnCurrentLine(&r, c)
                 if ok {
                     singleCharacterTruncated = false
                     increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
@@ -359,7 +359,7 @@ drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : A
         }
     }
 
-    if currentLine != 0 { recorder_newline(&r) }
+    if currentLine != 0 { writer_newline(&r) }
 
     actualRect = { rect.x + minOffset, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
     truncated = (len(text) != 0 || str.builder_len(sb) != 0 || singleCharacterTruncated)

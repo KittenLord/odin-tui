@@ -73,7 +73,7 @@ c_fill :: proc (cb : ^CommandBuffer, rect : Rect, char : rune = ' ') {
 
 
 
-Recorder :: struct {
+Writer :: struct {
     rect : Rect,
     pos  : Pos,
 
@@ -81,16 +81,16 @@ Recorder :: struct {
     commandBuffer : ^CommandBuffer,
 }
 
-recorder_start :: proc (r : ^Recorder) {
+writer_start :: proc (r : ^Writer) {
     if r.render { c_goto(r.commandBuffer, r.pos) }
 }
 
-recorder_done :: proc (r : Recorder) -> bool {
-    return recorder_remaining(r).y <= 0
+writer_done :: proc (r : Writer) -> bool {
+    return writer_remaining(r).y <= 0
 }
 
-recorder_newline :: proc (r : ^Recorder, offset : i16 = 0) -> (ok : bool = false) {
-    if recorder_done(r^) { return }
+writer_newline :: proc (r : ^Writer, offset : i16 = 0) -> (ok : bool = false) {
+    if writer_done(r^) { return }
     if offset >= r.rect.z { return }
 
     r.pos.y += 1
@@ -102,7 +102,7 @@ recorder_newline :: proc (r : ^Recorder, offset : i16 = 0) -> (ok : bool = false
     return
 }
 
-recorder_remaining :: proc (r : Recorder) -> Pos {
+writer_remaining :: proc (r : Writer) -> Pos {
     return r.rect.xy + r.rect.zw - r.pos
 }
 
@@ -110,11 +110,11 @@ recorder_remaining :: proc (r : Recorder) -> Pos {
 
 // 0, text, false
 // n, rem, true
-recorder_writeOnCurrentLine :: proc (r : ^Recorder, text : string) -> (written : i16 = 0, remaining : string, ok : bool = false) {
+writer_writeOnCurrentLine :: proc (r : ^Writer, text : string) -> (written : i16 = 0, remaining : string, ok : bool = false) {
     remaining = text
-    if recorder_done(r^) { return }
+    if writer_done(r^) { return }
 
-    rm := recorder_remaining(r^)
+    rm := writer_remaining(r^)
     l := math.min(cast(int)rm.x, len(text))
 
     taken, _ := str.substring_to(text, l)
@@ -131,22 +131,22 @@ recorder_writeOnCurrentLine :: proc (r : ^Recorder, text : string) -> (written :
     return
 }
 
-recorder_write :: proc (r : ^Recorder, text : string) -> (written : i16 = 0, remaining : string) {
+writer_write :: proc (r : ^Writer, text : string) -> (written : i16 = 0, remaining : string) {
     remaining = text
 
-    for !recorder_done(r^) && len(remaining) > 0 {
+    for !writer_done(r^) && len(remaining) > 0 {
         w : i16
-        w, remaining, _ = recorder_writeOnCurrentLine(r, remaining)
+        w, remaining, _ = writer_writeOnCurrentLine(r, remaining)
         written += w
-        recorder_newline(r, 0)
+        writer_newline(r, 0)
     }
 
     return
 }
 
-recorder_writeRuneOnCurrentLine :: proc (r : ^Recorder, c : rune) -> (ok : bool = false) {
-    if recorder_done(r^) { return }
-    if recorder_remaining(r^).x <= 0 { return }
+writer_writeRuneOnCurrentLine :: proc (r : ^Writer, c : rune) -> (ok : bool = false) {
+    if writer_done(r^) { return }
+    if writer_remaining(r^).x <= 0 { return }
 
     if r.render {
         c_appendRune(r.commandBuffer, c)
