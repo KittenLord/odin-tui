@@ -13,6 +13,71 @@ import utf8 "core:unicode/utf8"
 
 import "core:log"
 
+FontModeOption :: enum {
+    Bold,
+    Dim,
+    Italic,
+    Underline,
+    Blinking,
+    Inverse,
+    Hidden,
+    Strikethrough,
+}
+
+FontMode :: bit_set[FontModeOption]
+
+FontColor_Standard :: enum {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Default,
+}
+
+FontColor_Bright :: enum {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+}
+
+FontColor_256 :: struct {
+    id : u8,
+}
+
+FontColor_rgb :: struct {
+    r : u8,
+    g : u8,
+    b : u8,
+}
+
+FontColor :: union {
+    FontColor_Standard,
+    FontColor_Bright,
+    FontColor_256,
+    FontColor_rgb,
+}
+
+
+FontStyle :: struct {
+    bg : FontColor,
+    fg : FontColor,
+
+    mode : FontMode,
+}
+
+
+
+
+
 // TODO: i still have very little clue on how we're going to handle wide characters (japanese and chinese), if at all
 
 CommandBuffer :: union {
@@ -21,13 +86,14 @@ CommandBuffer :: union {
 }
 
 
-
 CommandBuffer_Stdout :: struct {
     builder : str.Builder,
 }
 
 CellData :: struct {
     r : rune,
+
+    style : FontStyle,
 }
 
 // NOTE: there is no latency to copying into user memory as compared to writing to stdout, so we just immediately execute all commands

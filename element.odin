@@ -14,6 +14,9 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 
+NavDirection :: enum {
+    N, E, S, W,
+}
 
 Element :: struct {
     kind : string,
@@ -27,8 +30,49 @@ Element :: struct {
 
     render     : proc (self : ^Element, ctx : ^RenderingContext, rect : Rect),
     negotiate  : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
+
     input      : proc (self : ^Element, input : rune),
+    inputFocus : proc (self : ^Element, input : rune),
+
+    navigate   : proc (self : ^Element, dir : NavDirection),
 }
+
+render_default :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    return
+}
+
+negotiate_default :: proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+    return constraints.preferredSize
+}
+
+input_default :: proc (self : ^Element, input : rune) {
+    return
+}
+
+inputFocus_default :: proc (self : ^Element, input : rune) {
+    switch input {
+    case 'h':
+        self->navigate(.W)
+    case 'j':
+        self->navigate(.S)
+    case 'k':
+        self->navigate(.N)
+    case 'l':
+        self->navigate(.E)
+    case:
+        break
+    }
+}
+
+navigate_default :: proc (self : ^Element, dir : NavDirection) {
+    self.parent->navigate(dir)
+    return
+}
+
+
+
+
+
 
 element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     e->render(ctx, rect)
@@ -52,7 +96,9 @@ element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = fa
 }
 
 element_input :: proc (e : ^Element, input : rune) {
-    e->input(input)
+    if e.focused { e->inputFocus(input) }
+    else         { e->input(input) }
+
     for c in e.children {
         element_input(c, input)
     }
@@ -106,9 +152,7 @@ Alignment :: struct {
 
 
 
-negotiate_default :: proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
-    return constraints.preferredSize
-}
+
 
 element_assignParentRecurse :: proc (root : ^Element) {
     for e in root.children {
@@ -166,6 +210,7 @@ element_getFullKindName :: proc (target : ^Element) -> string {
 
 Element_Table :: struct {
     using base : Element,
+
     configuration : Buffer(int),
 
     stretchingCols : []Stretching,
@@ -174,17 +219,24 @@ Element_Table :: struct {
 
 Element_Label :: struct {
     using base : Element,
+
     text : string,
 }
 
-Element_ScrollBox :: struct {
+Element_Linear :: struct {
     using base : Element,
-
-    scrolling : [2]bool,
-    scrollbar : [2]bool,
 }
 
 
+Element_default :: Element{
+    kind = "Element",
+
+    render = render_default,
+    negotiate = negotiate_default,
+    input = input_default,
+    inputFocus = inputFocus_default,
+    navigate = navigate_default,
+}
 
 Element_Label_default :: Element_Label{
     kind = "Label",
@@ -217,6 +269,10 @@ Element_Label_default :: Element_Label{
         
         return rect.zw + increment
     },
+
+    input = input_default,
+    inputFocus = inputFocus_default,
+    navigate = navigate_default,
 }
 
 
@@ -230,6 +286,10 @@ Element_Table_default :: Element_Table{
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
         return Element_Table_internalRender(self, Rect{ 0, 0, constraints.maxSize.x, constraints.maxSize.y }, nil, false)
     },
+
+    input = input_default,
+    inputFocus = inputFocus_default,
+    navigate = navigate_default,
 }
 
 Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^RenderingContext, render : bool) -> (size : Pos) {

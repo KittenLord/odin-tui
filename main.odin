@@ -122,10 +122,6 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 }
 
 
-// TODO: we will replace os.write_string to writing into a
-// temporary buffer
-
-
 // TODO: this should probably be entirely rewritten i dont like how hacky this is
 drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
     lineLengths := lineLengths
@@ -454,7 +450,11 @@ run :: proc () -> bool {
             drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
 
             element_render(self.children[0], ctx, rest)
-        }
+        },
+
+        input = input_default,
+        inputFocus = inputFocus_default,
+        navigate = navigate_default,
     }
 
     p30 := Element{
@@ -466,7 +466,11 @@ run :: proc () -> bool {
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
             drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-        }
+        },
+
+        input = input_default,
+        inputFocus = inputFocus_default,
+        navigate = navigate_default,
     }
 
     p50 := Element{
@@ -478,7 +482,11 @@ run :: proc () -> bool {
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
             drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-        }
+        },
+
+        input = input_default,
+        inputFocus = inputFocus_default,
+        navigate = navigate_default,
     }
 
     root := Element{
@@ -504,7 +512,11 @@ run :: proc () -> bool {
             element_render(self.children[0], ctx, rectA)
             element_render(self.children[1], ctx, rectB)
             element_render(self.children[2], ctx, rectC)
-        }
+        },
+
+        input = input_default,
+        inputFocus = inputFocus_default,
+        navigate = navigate_default,
     }
 
 
@@ -536,6 +548,13 @@ run :: proc () -> bool {
     }
 
     for _ in 0..<6 {
+        buffer : [32]u8
+        n, err := os.read_at_least(os.stdin, buffer[:], 1)
+
+
+
+        element_input(&root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
+
         buffer_reset(box, BoxType.None)
         buffer_reset(screen, '\x00')
         c_reset(&cb)
@@ -555,9 +574,6 @@ run :: proc () -> bool {
         cc_bufferPresent(&cb, screen)
 
         os.write_string(os.stdout, str.to_string(cb.(CommandBuffer_Stdout).builder))
-
-        buffer : [32]u8
-        n, err := os.read_at_least(os.stdin, buffer[:], 1)
     }
 
 
