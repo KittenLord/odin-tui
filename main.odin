@@ -402,6 +402,15 @@ c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
     }
 }
 
+c_fill :: proc (rect : Rect, char : rune = ' ') {
+    for y in rect.y ..= (rect.y + rect.w - 1) {
+        c_goto({ rect.x, y })
+        for x in rect.x ..= (rect.x + rect.z - 1) {
+            os.write_rune(os.stdout, char)
+        }
+    }
+}
+
 
 
 
