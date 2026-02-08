@@ -13,31 +13,106 @@ import utf8 "core:unicode/utf8"
 
 import "core:log"
 
-// TODO: we will need to be able to execute commands not only on stdout, but also on arbitrary 2d buffer (e.g. scrolling)
+// TODO: i still have very little clue on how we're going to handle wide characters (japanese and chinese), if at all
 
-CommandBuffer :: struct {
+CommandBuffer :: union {
+    CommandBuffer_Stdout,
+    CommandBuffer_Buffer,
+}
+
+
+
+CommandBuffer_Stdout :: struct {
     builder : str.Builder,
 }
 
-c_appendRune :: proc (cb : ^CommandBuffer, r : rune) {
-    str.write_rune(&cb.builder, r)
+CellData :: struct {
+    r : rune,
 }
 
-c_appendString :: proc (cb : ^CommandBuffer, s : string) {
-    str.write_string(&cb.builder, s)
+// NOTE: there is no latency to copying into user memory as compared to writing to stdout, so we just immediately execute all commands
+CommandBuffer_Buffer :: struct {
+    buffer : Buffer(CellData),
+
+    pos : Pos,
 }
 
-c_clear :: proc (cb : ^CommandBuffer) {
-    c_appendString(cb, "\e[2J")
+
+
+// NOTE: 
+// c_   : fundamental command (needs to be implemented for both Stdout and Buffer)
+// cc_  : derived command (is defined in terms of other c_ or cc_ commands)
+
+c_reset :: proc (cbb : ^CommandBuffer) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        // NOTE: oh my fucking goooooooood
+        cbc := cb
+        str.builder_reset(&cbc.builder)
+        cbb^ = cbc
+    case CommandBuffer_Buffer:
+        buffer_reset(cb.buffer, CellData{ r = '\x00' })
+    }
 }
 
-c_goto :: proc (cb : ^CommandBuffer, p : Pos) {
-    buffer : [32]u8
-    s := fmt.bprintf(buffer[:], "\e[%v;%vH", p.y + 1, p.x + 1)
-    c_appendString(cb, s)
+c_appendRune :: proc (cbb : ^CommandBuffer, r : rune) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        cbc := cb
+        defer cbb^ = cbc
+        
+        str.write_rune(&cbc.builder, r)
+    case CommandBuffer_Buffer:
+        cbc := cb
+        defer cbb^ = cbc
+
+        buffer_set(cbc.buffer, cbc.pos, CellData{ r = r })
+        cbc.pos.x += 1
+        if cbc.pos.x >= cbc.buffer.rect.x + cbc.buffer.rect.z {
+            cbc.pos.x = cbc.buffer.rect.x
+            cbc.pos.y += 1
+        }
+    }
 }
 
-c_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
+c_appendString :: proc (cbb : ^CommandBuffer, s : string) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        cbc := cb
+        defer cbb^ = cbc
+
+        str.write_string(&cbc.builder, s)
+    case CommandBuffer_Buffer:
+        for c in s {
+            c_appendRune(cbb, c)
+        }
+    }
+}
+
+c_clear :: proc (cbb : ^CommandBuffer) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        c_appendString(cbb, "\e[2J")
+    case CommandBuffer_Buffer:
+        buffer_reset(cb.buffer, CellData{ r = '\x00' })
+    }
+}
+
+c_goto :: proc (cbb : ^CommandBuffer, p : Pos) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        buffer : [32]u8
+        s := fmt.bprintf(buffer[:], "\e[%v;%vH", p.y + 1, p.x + 1)
+        c_appendString(cbb, s)
+    case CommandBuffer_Buffer:
+        cbc := cb
+        defer cbb^ = cbc
+
+        cbc.pos = p
+    }
+}
+
+cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
     consecutive := true
     c_goto(cb, buffer.rect.xy)
 
@@ -62,7 +137,7 @@ c_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
     }
 }
 
-c_fill :: proc (cb : ^CommandBuffer, rect : Rect, char : rune = ' ') {
+cc_fill :: proc (cb : ^CommandBuffer, rect : Rect, char : rune = ' ') {
     for y in rect.y ..= (rect.y + rect.w - 1) {
         c_goto(cb, { rect.x, y })
         for x in rect.x ..= (rect.x + rect.z - 1) {

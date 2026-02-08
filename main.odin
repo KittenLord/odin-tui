@@ -21,10 +21,6 @@ import "core:log"
 
 
 
-CellData :: struct {
-    r : rune
-}
-
 // NOTE: data is sequential rows
 Buffer :: struct($Item : typeid) {
     rect : Rect,
@@ -535,15 +531,14 @@ run :: proc () -> bool {
 
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
-    cb := CommandBuffer{
+    cb : CommandBuffer = CommandBuffer_Stdout{
         builder = str.builder_make_none(),
     }
 
     for _ in 0..<6 {
         buffer_reset(box, BoxType.None)
         buffer_reset(screen, '\x00')
-
-        str.builder_reset(&cb.builder)
+        c_reset(&cb)
 
         c_clear(&cb)
 
@@ -557,9 +552,9 @@ run :: proc () -> bool {
         element_render(&root, &ctx, ctx.screenRect)
 
         resolveBoxBuffer(box, screen)
-        c_bufferPresent(&cb, screen)
+        cc_bufferPresent(&cb, screen)
 
-        os.write_string(os.stdout, str.to_string(cb.builder))
+        os.write_string(os.stdout, str.to_string(cb.(CommandBuffer_Stdout).builder))
 
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
