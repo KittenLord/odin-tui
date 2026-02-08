@@ -106,9 +106,9 @@ buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos =
     }
 }
 
-buffer_present :: proc (buffer : Buffer(rune)) {
+c_buffer_present :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
     consecutive := true
-    c_goto(buffer.rect.xy)
+    c_goto(cb, buffer.rect.xy)
 
     for y in 0..<buffer.rect.w {
         for x in 0..<buffer.rect.z {
@@ -119,11 +119,11 @@ buffer_present :: proc (buffer : Buffer(rune)) {
             }
 
             if !consecutive {
-                c_goto({ x, y })
+                c_goto(cb, { x, y })
                 consecutive = true
             }
 
-            os.write_rune(os.stdout, r)
+            c_appendRune(cb, r)
         }
 
         // NOTE: unless buffer is the width of the screen
@@ -135,24 +135,14 @@ buffer_present :: proc (buffer : Buffer(rune)) {
 // TODO: we will replace os.write_string to writing into a
 // temporary buffer
 
-c_clear :: proc () {
-    os.write_string(os.stdout, "\e[2J")
-}
-
-c_goto :: proc (p : Pos) {
-    buffer : [32]u8
-    s := fmt.bprintf(buffer[:], "\e[%v;%vH", p.y + 1, p.x + 1)
-    os.write_string(os.stdout, s)
-}
-
 
 // TODO: this should probably be entirely rewritten i dont like how hacky this is
-drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
+drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
     lineLengths := lineLengths
 
     if rendering {
         lineLengths = make([]i16, rect.w)
-        drawText(text, rect, align, wrap, false, lineLengths)
+        drawText(ctx, text, rect, align, wrap, false, lineLengths)
     }
 
     defer if rendering {
@@ -165,7 +155,7 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
     sb := str.builder_from_bytes(buffer)
 
     // ALIGN
-    r := Recorder{ rect, rect.xy, rendering }
+    r := Recorder{ rect, rect.xy, rendering, ctx == nil ? nil : ctx.commandBuffer }
     recorder_start(&r)
 
     if lineLengths != nil { lineLengths[0] = 0 }
@@ -350,67 +340,6 @@ drawText :: proc (text : string, rect : Rect, align : Alignment, wrap : Wrapping
     return
 }
 
-c_drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
-    br := br_from_rect(rect)
-
-    for x in rect.x..<br.x {
-        buffer_set(buffer, Pos{ x,   rect.y }, type)
-        buffer_set(buffer, Pos{ x, br.y - 1 }, type)
-    }
-
-    for y in (rect.y + 1)..<(br.y - 1) {
-        buffer_set(buffer, Pos{ rect.x,   y }, type)
-        buffer_set(buffer, Pos{ br.x - 1, y }, type)
-    }
-}
-
-// NOTE: mostly for drawing lines
-c_drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
-    br := br_from_rect(rect)
-
-    for x in rect.x..<br.x {
-        for y in rect.y..<br.y {
-            buffer_set(buffer, Pos{ x, y }, type)
-        }
-    }
-}
-
-c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
-    for x in 0..<buffer.rect.z {
-        for y in 0..<buffer.rect.w {
-            type := buffer_get(buffer, { x, y }) or_continue
-            if type == .None { continue }
-
-            n := buffer_get(buffer, { x, y - 1 }) or_else .None
-            e := buffer_get(buffer, { x + 1, y }) or_else .None
-            s := buffer_get(buffer, { x, y + 1 }) or_else .None
-            w := buffer_get(buffer, { x - 1, y }) or_else .None
-
-            candidate : BoxCharacter
-            for c in BoxCharacters {
-                if n not_in c.masks[0] ||
-                   e not_in c.masks[1] ||
-                   s not_in c.masks[2] ||
-                   w not_in c.masks[3] { continue }
-
-                candidate = c
-                if type in c.type { break }
-            }
-
-            buffer_set(out, { x, y }, candidate.character)
-        }
-    }
-}
-
-c_fill :: proc (rect : Rect, char : rune = ' ') {
-    for y in rect.y ..= (rect.y + rect.w - 1) {
-        c_goto({ rect.x, y })
-        for x in rect.x ..= (rect.x + rect.z - 1) {
-            os.write_rune(os.stdout, char)
-        }
-    }
-}
-
 
 
 
@@ -490,6 +419,7 @@ buyIncrement :: proc (base : Pos, old : Pos, max : Pos, widthByHeightPriceRatio 
 RenderingContext :: struct {
     bufferBoxes : Buffer(BoxType),
     screenRect : Rect,
+    commandBuffer : ^CommandBuffer,
 }
 
 run :: proc () -> bool {
@@ -524,7 +454,7 @@ run :: proc () -> bool {
 
         children = { &p20table },
 
-        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
 
             label := Element_Label_default
@@ -540,7 +470,7 @@ run :: proc () -> bool {
     p30 := Element{
         kind = "P30",
 
-        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             label := Element_Label_default
             label.text = "Program header"
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
@@ -552,7 +482,7 @@ run :: proc () -> bool {
     p50 := Element{
         kind = "P50",
 
-        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             label := Element_Label_default
             label.text = "Segment content"
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
@@ -565,7 +495,7 @@ run :: proc () -> bool {
         kind = "Root",
 
         children = { &p20, &p30, &p50 },
-        render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             c_drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
             content := rect_inner(ctx.screenRect)
 
@@ -611,23 +541,31 @@ run :: proc () -> bool {
 
     screen := buffer_create(getScreenRect() or_return, rune) or_return
     box := buffer_create(getScreenRect() or_return, BoxType) or_return
+    cb := CommandBuffer{
+        builder = str.builder_make_none(),
+    }
 
     for _ in 0..<6 {
-        c_clear()
-
         buffer_reset(box, BoxType.None)
         buffer_reset(screen, '\x00')
 
+        str.builder_reset(&cb.builder)
+
+        c_clear(&cb)
+
         ctx := RenderingContext{
             bufferBoxes = box,
-            screenRect = getScreenRect() or_break
+            screenRect = getScreenRect() or_break,
+            commandBuffer = &cb,
         }
 
         element_assignParentRecurse(&root)
-        element_render(&root, ctx, ctx.screenRect)
+        element_render(&root, &ctx, ctx.screenRect)
 
         c_resolveBoxBuffer(box, screen)
-        buffer_present(screen)
+        c_buffer_present(&cb, screen)
+
+        os.write_string(os.stdout, str.to_string(cb.builder))
 
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)

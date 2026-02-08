@@ -25,12 +25,12 @@ Element :: struct {
     focused : bool,
     lastRenderedRect : Rect,
 
-    render     : proc (self : ^Element, ctx : RenderingContext, rect : Rect),
+    render     : proc (self : ^Element, ctx : ^RenderingContext, rect : Rect),
     negotiate  : proc (self : ^Element, constraints : Constraints) -> (size : Pos),
     input      : proc (self : ^Element, input : rune),
 }
 
-element_render :: proc (e : ^Element, ctx : RenderingContext, rect : Rect) {
+element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     e->render(ctx, rect)
     e.lastRenderedRect = rect
 }
@@ -189,13 +189,13 @@ Element_ScrollBox :: struct {
 Element_Label_default :: Element_Label{
     kind = "Label",
 
-    render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+    render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
 
         name := element_getFullKindName(self)
         defer delete(name)
 
-        drawText(self.text, rect, { .Left, .Top }, .NoWrapping)
+        drawText(ctx, self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
@@ -205,17 +205,15 @@ Element_Label_default :: Element_Label{
         defer delete(name)
 
         referenceRect := constraints.preferredSize
-        rect, truncated := drawText(self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        rect, truncated := drawText(nil, self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         increment := Pos{ 0, 0 }
 
         for truncated && (rect.zw + increment) != constraints.maxSize {
             // TODO: increase increment
             increment = buyIncrement(rect.zw, increment, constraints.maxSize, constraints.widthByHeightPriceRatio)
 
-            _, truncated = drawText(self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+            _, truncated = drawText(nil, self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         }
-
-        log.debugf("[%v] %v -> %v", name, constraints, rect.zw + increment)
         
         return rect.zw + increment
     },
@@ -245,11 +243,10 @@ What the algorithm should be like
 
 */
 
-
 Element_Table_default :: Element_Table{
     kind = "Table",
 
-    render = proc (self : ^Element, ctx : RenderingContext, rect : Rect) {
+    render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Table)self
 
         maxCols := make([]i16, self.configuration.rect.z)
@@ -364,6 +361,9 @@ Element_Table_default :: Element_Table{
                 limRows[i] = maxRows[i] + (sign_i16(dr) * cast(i16)d)
             }
         }
+
+        totalCols := math.sum(limCols)
+        totalRows := math.sum(limRows)
 
 
 
