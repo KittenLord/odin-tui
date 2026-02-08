@@ -37,55 +37,28 @@ c_goto :: proc (cb : ^CommandBuffer, p : Pos) {
     c_appendString(cb, s)
 }
 
-c_drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
-    br := br_from_rect(rect)
+c_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
+    consecutive := true
+    c_goto(cb, buffer.rect.xy)
 
-    for x in rect.x..<br.x {
-        buffer_set(buffer, Pos{ x,   rect.y }, type)
-        buffer_set(buffer, Pos{ x, br.y - 1 }, type)
-    }
-
-    for y in (rect.y + 1)..<(br.y - 1) {
-        buffer_set(buffer, Pos{ rect.x,   y }, type)
-        buffer_set(buffer, Pos{ br.x - 1, y }, type)
-    }
-}
-
-// NOTE: mostly for drawing lines
-c_drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
-    br := br_from_rect(rect)
-
-    for x in rect.x..<br.x {
-        for y in rect.y..<br.y {
-            buffer_set(buffer, Pos{ x, y }, type)
-        }
-    }
-}
-
-c_resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
-    for x in 0..<buffer.rect.z {
-        for y in 0..<buffer.rect.w {
-            type := buffer_get(buffer, { x, y }) or_continue
-            if type == .None { continue }
-
-            n := buffer_get(buffer, { x, y - 1 }) or_else .None
-            e := buffer_get(buffer, { x + 1, y }) or_else .None
-            s := buffer_get(buffer, { x, y + 1 }) or_else .None
-            w := buffer_get(buffer, { x - 1, y }) or_else .None
-
-            candidate : BoxCharacter
-            for c in BoxCharacters {
-                if n not_in c.masks[0] ||
-                   e not_in c.masks[1] ||
-                   s not_in c.masks[2] ||
-                   w not_in c.masks[3] { continue }
-
-                candidate = c
-                if type in c.type { break }
+    for y in 0..<buffer.rect.w {
+        for x in 0..<buffer.rect.z {
+            r := buffer_get(buffer, { x, y }) or_continue
+            if r == '\x00' {
+                consecutive = false
+                continue
             }
 
-            buffer_set(out, { x, y }, candidate.character)
+            if !consecutive {
+                c_goto(cb, { x, y })
+                consecutive = true
+            }
+
+            c_appendRune(cb, r)
         }
+
+        // NOTE: unless buffer is the width of the screen
+        consecutive = false
     }
 }
 

@@ -106,28 +106,55 @@ buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos =
     }
 }
 
-c_buffer_present :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
-    consecutive := true
-    c_goto(cb, buffer.rect.xy)
+drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
+    br := br_from_rect(rect)
 
-    for y in 0..<buffer.rect.w {
-        for x in 0..<buffer.rect.z {
-            r := buffer_get(buffer, { x, y }) or_continue
-            if r == '\x00' {
-                consecutive = false
-                continue
-            }
+    for x in rect.x..<br.x {
+        buffer_set(buffer, Pos{ x,   rect.y }, type)
+        buffer_set(buffer, Pos{ x, br.y - 1 }, type)
+    }
 
-            if !consecutive {
-                c_goto(cb, { x, y })
-                consecutive = true
-            }
+    for y in (rect.y + 1)..<(br.y - 1) {
+        buffer_set(buffer, Pos{ rect.x,   y }, type)
+        buffer_set(buffer, Pos{ br.x - 1, y }, type)
+    }
+}
 
-            c_appendRune(cb, r)
+// NOTE: mostly for drawing lines
+drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
+    br := br_from_rect(rect)
+
+    for x in rect.x..<br.x {
+        for y in rect.y..<br.y {
+            buffer_set(buffer, Pos{ x, y }, type)
         }
+    }
+}
 
-        // NOTE: unless buffer is the width of the screen
-        consecutive = false
+resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
+    for x in 0..<buffer.rect.z {
+        for y in 0..<buffer.rect.w {
+            type := buffer_get(buffer, { x, y }) or_continue
+            if type == .None { continue }
+
+            n := buffer_get(buffer, { x, y - 1 }) or_else .None
+            e := buffer_get(buffer, { x + 1, y }) or_else .None
+            s := buffer_get(buffer, { x, y + 1 }) or_else .None
+            w := buffer_get(buffer, { x - 1, y }) or_else .None
+
+            candidate : BoxCharacter
+            for c in BoxCharacters {
+                if n not_in c.masks[0] ||
+                   e not_in c.masks[1] ||
+                   s not_in c.masks[2] ||
+                   w not_in c.masks[3] { continue }
+
+                candidate = c
+                if type in c.type { break }
+            }
+
+            buffer_set(out, { x, y }, candidate.character)
+        }
     }
 }
 
@@ -461,7 +488,7 @@ run :: proc () -> bool {
             label.text = "ELF Header"
             element_render(&label, ctx, rectTitle)
 
-            c_drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
+            drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
 
             element_render(self.children[0], ctx, rest)
         }
@@ -475,7 +502,7 @@ run :: proc () -> bool {
             label.text = "Program header"
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
-            c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+            drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
     }
 
@@ -487,7 +514,7 @@ run :: proc () -> bool {
             label.text = "Segment content"
             element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
 
-            c_drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+            drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
         }
     }
 
@@ -496,7 +523,7 @@ run :: proc () -> bool {
 
         children = { &p20, &p30, &p50 },
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-            c_drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
+            drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
             content := rect_inner(ctx.screenRect)
 
             width := content.z
@@ -508,8 +535,8 @@ run :: proc () -> bool {
             rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
             rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
 
-            c_drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
-            c_drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
+            drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
+            drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
 
             element_render(self.children[0], ctx, rectA)
             element_render(self.children[1], ctx, rectB)
@@ -562,8 +589,8 @@ run :: proc () -> bool {
         element_assignParentRecurse(&root)
         element_render(&root, &ctx, ctx.screenRect)
 
-        c_resolveBoxBuffer(box, screen)
-        c_buffer_present(&cb, screen)
+        resolveBoxBuffer(box, screen)
+        c_bufferPresent(&cb, screen)
 
         os.write_string(os.stdout, str.to_string(cb.builder))
 
