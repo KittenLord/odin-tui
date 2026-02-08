@@ -19,39 +19,6 @@ import "core:log"
 
 
 
-/* How the table will work
-
-Negotiating
-Each column and row is either MinimalPossible, MinimalNecessary, or Expand
-    - MinimalPossible   - preferredSize == 1
-    - MinimalNecessary  - preferredSize == rect.z / numCols
-    - Expand            - preferredSize == rect.z / numCols
-
-After determining the preferredSize, table negotiates size with each cell,
-collecting the results. We calculate the maxCol and maxRow for each column
-and row. After that we check whether total of maxCol and total of maxRow
-summed up fit and fill the preferredSize and maxSize provided to the table.
-    - if it is larger than maxSize, we must subtract from cols and rows with
-      the lowest priority (and probably renegotiate with affected cells)
-    - if it is different from preferredSize we do not care, since the result
-      of negotiate is the minimal comfortable space for the element. The space
-      we have calculated is indeed the minimal comfortable
-
-Rendering
-The procedure is very similar, the only difference is that we have an explicit
-rect to fill. We have three cases - 1. Perfect fit. 2. Too small. 3. Too big
-    1. We are done
-    2. We add extra space to cols/rows with Expand -> MinimalNecessary ->
-       MinimalPossible, additionally adjusted by priority
-    3. We remove extra space from Expand -> MinimalNecessary -> MinimalPossible,
-       inversely adjusted by priority
-
-*/
-
-
-
-
-
 
 
 CellData :: struct {

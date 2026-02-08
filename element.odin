@@ -220,172 +220,159 @@ Element_Label_default :: Element_Label{
 }
 
 
-/*
-
-The difficulty of distributing space is that one dimension can be traded for another
-
-If we force an element to shrink in width, it might request more height which we *are* able to provide
-
-What the algorithm should be like
-
-1. Loop over elements, negotiate them with preferredSize = (width / ncols, height / nrows), maxSize = (width, height)
-2. We now have 4 cases (used exactly is equivalent to undertilized, with amount = 0)
-    a. Both width and height are underutilized
-    b. Height is overutilized, width is undertilized
-    c. Width is overutilized, height is undertilized
-    d. Both width and height are overutilized
-3. We now adjust the widths and heights of each element - if it is overutilized we subtract (depending in priority), if
-   it is undertilized and the table is supposed to stretch fully, we increment
-4. Now we do the following:
-    - for underutilized axis without stretch we provide preferredSize = previousSize, maxSize = totalSize
-    - for underutilized axis with stretch we provide preferredSize = adjustedSize, maxSize = totalSize
-    - for overutilized axis we provide preferredSize = adjustedSize, maxSize = adjustedSize
-
-*/
-
 Element_Table_default :: Element_Table{
     kind = "Table",
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-        self := cast(^Element_Table)self
+        Element_Table_internalRender(self, rect, ctx, true)
+    },
 
-        maxCols := make([]i16, self.configuration.rect.z)
-        maxRows := make([]i16, self.configuration.rect.w)
-        limCols := make([]i16, self.configuration.rect.z)
-        limRows := make([]i16, self.configuration.rect.w)
-        defer delete(maxCols)
-        defer delete(maxRows)
-        defer delete(limCols)
-        defer delete(limRows)
+    negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        return Element_Table_internalRender(self, Rect{ 0, 0, constraints.maxSize.x, constraints.maxSize.y }, nil, false)
+    },
+}
 
-        capCols := make([]u64, self.configuration.rect.z)
-        capRows := make([]u64, self.configuration.rect.w)
-        defer delete(capCols)
-        defer delete(capRows)
+Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^RenderingContext, render : bool) -> (size : Pos) {
+    self := cast(^Element_Table)self
+
+    maxCols := make([]i16, self.configuration.rect.z)
+    maxRows := make([]i16, self.configuration.rect.w)
+    limCols := make([]i16, self.configuration.rect.z)
+    limRows := make([]i16, self.configuration.rect.w)
+    defer delete(maxCols)
+    defer delete(maxRows)
+    defer delete(limCols)
+    defer delete(limRows)
+
+    capCols := make([]u64, self.configuration.rect.z)
+    capRows := make([]u64, self.configuration.rect.w)
+    defer delete(capCols)
+    defer delete(capRows)
 
 
-        deltaCols := make([]i64, self.configuration.rect.z)
-        deltaRows := make([]i64, self.configuration.rect.w)
-        defer delete(deltaCols)
-        defer delete(deltaRows)
+    deltaCols := make([]i64, self.configuration.rect.z)
+    deltaRows := make([]i64, self.configuration.rect.w)
+    defer delete(deltaCols)
+    defer delete(deltaRows)
 
 
 
-        priorityCols := make([]u64, self.configuration.rect.z)
-        priorityRows := make([]u64, self.configuration.rect.w)
-        defer delete(priorityCols)
-        defer delete(priorityRows)
+    priorityCols := make([]u64, self.configuration.rect.z)
+    priorityRows := make([]u64, self.configuration.rect.w)
+    defer delete(priorityCols)
+    defer delete(priorityRows)
 
-        for s, i in self.stretchingCols {
-            priorityCols[i] = calculatePriority(s)
+    for s, i in self.stretchingCols {
+        priorityCols[i] = calculatePriority(s)
+    }
+
+    for s, i in self.stretchingRows {
+        priorityRows[i] = calculatePriority(s)
+    }
+
+
+
+    calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
+        m : u64 = math.max(cast(u64)s.priority, 1)
+        switch s.fill {
+        case .MinimalPossible:
+            m = 1
+        case .MinimalNecessary:
+            m *= 10
+        case .Expand:
+            m *= 50
         }
 
-        for s, i in self.stretchingRows {
-            priorityRows[i] = calculatePriority(s)
-        }
+        return m
+    }
+
+
+    for &l in limCols { l = rect.z }
+    for &l in limRows { l = rect.w }
+
+
+    lastIteration :: 1
+    for iteration in 0 ..= lastIteration {
+
+        for &m, i in maxCols { m = 0 }
+        for &m, i in maxRows { m = 0 }
 
 
 
-        calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
-            m : u64 = math.max(cast(u64)s.priority, 1) * 20
-            switch s.fill {
-            case .MinimalPossible:
-                m = 1
-            case .MinimalNecessary:
-                m *= 1
-            case .Expand:
-                m *= 5
-            }
-
-            return m
-        }
-
-
-        for &l in limCols { l = rect.z }
-        for &l in limRows { l = rect.w }
-
-
-        lastIteration :: 1
-        for iteration in 0 ..= lastIteration {
-
-            for &m, i in maxCols { m = 0 }
-            for &m, i in maxRows { m = 0 }
-
-
-
-            // TODO: loop in order of multiplicative preference
-            for x in 0..<self.configuration.rect.z {
-                for y in 0..<self.configuration.rect.w {
-                    n := buffer_get(self.configuration, { x, y }) or_continue
-                    e := self.children[n]
-
-                    maxSize := Pos{ limCols[x], limRows[y] }
-
-                    preferredSize := Pos{ math.min(maxSize.x, rect.z / self.configuration.rect.z), math.min(maxSize.y, rect.w / self.configuration.rect.w) }
-                    if self.stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
-                    if self.stretchingRows[y].fill == .MinimalPossible { preferredSize.y = 1 }
-
-                    // TODO: still not sure about this
-                    wbhRatio := (f64(rect.z)) / (f64(rect.w))
-
-                    size := element_negotiate(e, Constraints{ maxSize = maxSize, preferredSize = preferredSize, widthByHeightPriceRatio = wbhRatio })
-                    maxCols[x] = math.max(maxCols[x], size.x)
-                    maxRows[y] = math.max(maxRows[y], size.y)
-                }
-            }
-
-            totalCols := math.sum(maxCols)
-            totalRows := math.sum(maxRows)
-
-            // NOTE: unless this is the last iteration, elements should get as much space as possible
-            dc := rect.z - totalCols
-            if iteration == lastIteration && dc > 0 && !self.stretch.x { dc = 0 }
-
-            dr := rect.w - totalRows
-            if iteration == lastIteration && dr > 0 && !self.stretch.y { dr = 0 }
-
-            lc := dc < 0 ? capCols : nil
-            lr := dr < 0 ? capRows : nil
-
-            for &c, i in capCols { c = cast(u64)math.abs(maxCols[i]) }
-            for &c, i in capRows { c = cast(u64)math.abs(maxRows[i]) }
-
-            divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols, maxValues = lc)
-            divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows, maxValues = lr)
-
-            for d, i in deltaCols {
-                limCols[i] = maxCols[i] + (sign_i16(dc) * cast(i16)d)
-            }
-
-            for d, i in deltaRows {
-                limRows[i] = maxRows[i] + (sign_i16(dr) * cast(i16)d)
-            }
-        }
-
-        totalCols := math.sum(limCols)
-        totalRows := math.sum(limRows)
-
-
-
-
-
-        offset := rect.xy
+        // TODO: loop in order of multiplicative preference
         for x in 0..<self.configuration.rect.z {
             for y in 0..<self.configuration.rect.w {
                 n := buffer_get(self.configuration, { x, y }) or_continue
                 e := self.children[n]
 
-                msize := Pos{ limCols[x], limRows[y] }
-                // TODO: maybe a few renegotiation rounds? idk
-                // size := e->negotiate({ minSize = { 0, 0 }, maxSize = rect.zw, preferredSize = msize, widthByHeightPriceRatio = 1 })
-                
-                element_render(e, ctx, { offset.x, offset.y, msize.x, msize.y })
+                maxSize := Pos{ limCols[x], limRows[y] }
 
-                offset.y += msize.y
+                preferredSize := Pos{ math.min(maxSize.x, rect.z / self.configuration.rect.z), math.min(maxSize.y, rect.w / self.configuration.rect.w) }
+                if self.stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
+                if self.stretchingRows[y].fill == .MinimalPossible { preferredSize.y = 1 }
+
+                // TODO: still not sure about this
+                wbhRatio := (f64(rect.z)) / (f64(rect.w))
+
+                size := element_negotiate(e, Constraints{ maxSize = maxSize, preferredSize = preferredSize, widthByHeightPriceRatio = wbhRatio })
+                maxCols[x] = math.max(maxCols[x], size.x)
+                maxRows[y] = math.max(maxRows[y], size.y)
             }
+        }
 
-            offset.y = rect.y
-            offset.x += (limCols[x])
+        totalCols := math.sum(maxCols)
+        totalRows := math.sum(maxRows)
+
+        // NOTE: unless this is the last iteration, elements should get as much space as possible
+        dc := rect.z - totalCols
+        if iteration == lastIteration && dc > 0 && !self.stretch.x { dc = 0 }
+
+        dr := rect.w - totalRows
+        if iteration == lastIteration && dr > 0 && !self.stretch.y { dr = 0 }
+
+        lc := dc < 0 ? capCols : nil
+        lr := dr < 0 ? capRows : nil
+
+        for &c, i in capCols { c = cast(u64)math.abs(maxCols[i]) }
+        for &c, i in capRows { c = cast(u64)math.abs(maxRows[i]) }
+
+        divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols, maxValues = lc)
+        divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows, maxValues = lr)
+
+        for d, i in deltaCols {
+            limCols[i] = maxCols[i] + (sign_i16(dc) * cast(i16)d)
+        }
+
+        for d, i in deltaRows {
+            limRows[i] = maxRows[i] + (sign_i16(dr) * cast(i16)d)
         }
     }
+
+    totalCols := math.sum(limCols)
+    totalRows := math.sum(limRows)
+
+    size = { totalCols, totalRows }
+
+    if !render { return }
+
+
+
+
+    offset := rect.xy
+    for x in 0..<self.configuration.rect.z {
+        for y in 0..<self.configuration.rect.w {
+            n := buffer_get(self.configuration, { x, y }) or_continue
+            e := self.children[n]
+
+            msize := Pos{ limCols[x], limRows[y] }
+            element_render(e, ctx, { offset.x, offset.y, msize.x, msize.y })
+
+            offset.y += msize.y
+        }
+
+        offset.y = rect.y
+        offset.x += (limCols[x])
+    }
+
+    return
 }
