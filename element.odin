@@ -269,6 +269,9 @@ Element_Label :: struct {
 
 Element_Linear :: struct {
     using base : Element,
+
+    isHorizontal : bool,
+    stretching : []Stretching,
 }
 
 
@@ -324,6 +327,42 @@ Element_Label_default :: Element_Label{
     inputFocus = inputFocus_default,
     focus = focus_default,
     navigate = navigate_default,
+}
+
+Element_Linear_default :: Element_Linear{
+    kind = "Linear",
+
+    render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+        self := cast(^Element_Linear)self
+        // linear container has two directions - single and linear
+
+        singleMax : i16 = 0
+        linearTotal : i16 = 0
+
+        h := self.isHorizontal
+        singleLimit := h ? rect.w : rect.z
+        linearLimit := h ? rect.z : rect.w
+
+        mflip :: proc (p : Pos, h : bool) -> Pos {
+            if h { return p.xy }
+            else { return p.yx }
+        }
+
+        for c, i in self.children {
+            maxSize := Pos{ singleLimit, linearLimit }
+
+            preferredSize := Pos{ singleLimit, linearLimit / cast(i16)len(self.children) }
+            if self.stretching[i].fill == .MinimalPossible { preferredSize.y = 1 }
+
+            wbhRatio : f64 = 1
+
+            size := element_negotiate(c, Constraints{ maxSize = mflip(maxSize, h), preferredSize = mflip(preferredSize, h), widthByHeightPriceRatio = wbhRatio })
+            size = mflip(size, h)
+
+            singleMax = math.max(singleMax, size.x)
+            linearTotal += size.y
+        }
+    }
 }
 
 
