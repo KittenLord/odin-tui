@@ -14,46 +14,46 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 FontModeOption :: enum {
-    Bold,
-    Dim,
-    Italic,
-    Underline,
-    Blinking,
-    Inverse,
-    Hidden,
-    Strikethrough,
+    Bold = 1,
+    Dim = 2,
+    Italic = 3,
+    Underline = 4,
+    Blinking = 5,
+    Inverse = 7,
+    Hidden = 8,
+    Strikethrough = 9,
 }
 
 FontMode :: bit_set[FontModeOption]
 
 FontColor_Standard :: enum {
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    Default,
+    Black = 30,
+    Red = 31,
+    Green = 32,
+    Yellow = 33,
+    Blue = 34,
+    Magenta = 35,
+    Cyan = 36,
+    White = 37,
+    Default = 39,
 }
 
 FontColor_Bright :: enum {
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
+    Black = 90,
+    Red = 91,
+    Green = 92,
+    Yellow = 93,
+    Blue = 94,
+    Magenta = 95,
+    Cyan = 96,
+    White = 97,
 }
 
 FontColor_256 :: struct {
     id : u8,
 }
 
-FontColor_rgb :: struct {
+FontColor_RGB :: struct {
     r : u8,
     g : u8,
     b : u8,
@@ -63,7 +63,7 @@ FontColor :: union {
     FontColor_Standard,
     FontColor_Bright,
     FontColor_256,
-    FontColor_rgb,
+    FontColor_RGB,
 }
 
 
@@ -74,6 +74,48 @@ FontStyle :: struct {
     mode : FontMode,
 }
 
+// TODO: Is default just no mode and Standard.Default color?
+// NOTE: how the fuck is this not a compile time constant
+FontStyle_Default := FontStyle{
+    mode = FontMode{},
+    fg = FontColor_Standard.Default,
+    bg = FontColor_Standard.Default,
+}
+
+write_FontColor :: proc (c : FontColor, bg : bool, buffer : []u8) -> string {
+    switch color in c {
+    case FontColor_Standard:
+        bgi := bg ? 10 : 0
+        return fmt.bprintf(buffer, "\e[%vm", int(color) + bgi)
+    case FontColor_Bright:
+        bgi := bg ? 10 : 0
+        return fmt.bprintf(buffer, "\e[%vm", int(color) + bgi)
+    case FontColor_256:
+        bgi := bg ? 48 : 38
+        return fmt.bprintf(buffer, "\e[%v;5;%vm", bgi, color.id)
+    case FontColor_RGB:
+        bgi := bg ? 48 : 38
+        return fmt.bprintf(buffer, "\e[%v;2;%v;%v;%v", bgi, color.r, color.g, color.b)
+    }
+
+    panic("bad")
+}
+
+write_FontMode :: proc (m : FontMode, buffer : []u8) -> string {
+    sb := str.builder_from_bytes(buffer)
+
+    str.write_string(&sb, "\e[")
+
+    for mode, i in FontModeOption {
+        if i != 0 { str.write_rune(&sb, ';') }
+
+        inc := mode in m ? 0 : (20 + (mode == .Bold ? 1 : 0))
+        fmt.sbprintf(&sb, "%v", int(mode) + inc)
+    }
+
+    str.write_rune(&sb, 'm')
+    return str.to_string(sb)
+}
 
 
 
@@ -88,11 +130,12 @@ CommandBuffer :: union {
 
 CommandBuffer_Stdout :: struct {
     builder : str.Builder,
+
+    style : FontStyle,
 }
 
 CellData :: struct {
     r : rune,
-
     style : FontStyle,
 }
 
@@ -101,6 +144,7 @@ CommandBuffer_Buffer :: struct {
     buffer : Buffer(CellData),
 
     pos : Pos,
+    style : FontStyle,
 }
 
 
@@ -176,6 +220,58 @@ c_goto :: proc (cbb : ^CommandBuffer, p : Pos) {
 
         cbc.pos = p
     }
+}
+
+c_styleClear :: proc (cbb : ^CommandBuffer) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        cbc := cb
+        defer cbb^ = cbc
+
+        c_appendString(cbb, "\e[0m")
+        cbc.style = FontStyle_Default
+    case CommandBuffer_Buffer:
+        cbc := cb
+        defer cbb^ = cbc
+
+        cbc.style = FontStyle_Default
+    }
+}
+
+c_style :: proc (cbb : ^CommandBuffer, style : FontStyle) -> (previous : FontStyle) {
+    previous = style
+
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        c_styleClear(cbb)
+
+        buffer : [64]u8
+        c_appendString(cbb, write_FontMode(style.mode, buffer[:]))
+        c_appendString(cbb, write_FontColor(style.fg, false, buffer[:]))
+        c_appendString(cbb, write_FontColor(style.bg, true, buffer[:]))
+
+        cbc := cbb^.(CommandBuffer_Stdout)
+        cbc.style = style
+        cbb^ = cbc
+    case CommandBuffer_Buffer:
+        cbc := cb
+        defer cbb^ = cbc
+
+        cbc.style = style
+    }
+    
+    return
+}
+
+c_styleGet :: proc (cbb : ^CommandBuffer) -> (style : FontStyle) {
+    switch cb in cbb {
+    case CommandBuffer_Stdout:
+        return cb.style
+    case CommandBuffer_Buffer:
+        return cb.style
+    }
+
+    panic("bad")
 }
 
 cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {

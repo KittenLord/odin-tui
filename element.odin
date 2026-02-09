@@ -18,6 +18,17 @@ NavDirection :: enum {
     N, E, S, W,
 }
 
+Pos_from_NavDirection :: proc (n : NavDirection) -> Pos {
+    switch n {
+    case .N: return { 0, -1 }
+    case .E: return { 1, 0 }
+    case .S: return { 0, 1 }
+    case .W: return { -1, 0 }
+    }
+
+    panic("bad")
+}
+
 Element :: struct {
     kind : string,
 
@@ -34,6 +45,7 @@ Element :: struct {
     input      : proc (self : ^Element, input : rune),
     inputFocus : proc (self : ^Element, input : rune),
 
+    focus      : proc (self : ^Element),
     navigate   : proc (self : ^Element, dir : NavDirection),
 }
 
@@ -64,7 +76,12 @@ inputFocus_default :: proc (self : ^Element, input : rune) {
     }
 }
 
+focus_default :: proc (self : ^Element) {
+    return
+}
+
 navigate_default :: proc (self : ^Element, dir : NavDirection) {
+    if element_isRoot(self) { return }
     self.parent->navigate(dir)
     return
 }
@@ -75,24 +92,20 @@ navigate_default :: proc (self : ^Element, dir : NavDirection) {
 
 
 element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    oldStyle := c_styleGet(ctx.commandBuffer)
+
     e->render(ctx, rect)
     e.lastRenderedRect = rect
+
+    if c_styleGet(ctx.commandBuffer) != oldStyle {
+        c_style(ctx.commandBuffer, oldStyle)
+    }
 }
 
 element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
     r := e->negotiate(constraints)
     r = { math.min(r.x, constraints.maxSize.x), math.min(r.y, constraints.maxSize.y) }
     return r
-}
-
-element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = false) {
-    if e.focused { return e, true }
-    for c in e.children {
-        focus, found = element_findFocus(c)
-        if found { break }
-    }
-
-    return
 }
 
 element_input :: proc (e : ^Element, input : rune) {
@@ -102,6 +115,30 @@ element_input :: proc (e : ^Element, input : rune) {
     for c in e.children {
         element_input(c, input)
     }
+}
+
+element_focus :: proc (e : ^Element) {
+    e.focused = true
+
+    e->focus()
+}
+
+element_unfocus :: proc (e : ^Element) {
+    e.focused = false
+}
+
+
+
+
+
+element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = false) {
+    if e.focused { return e, true }
+    for c in e.children {
+        focus, found = element_findFocus(c)
+        if found { break }
+    }
+
+    return
 }
 
 
@@ -152,7 +189,14 @@ Alignment :: struct {
 
 
 
+element_isRoot :: proc (e : ^Element) -> bool {
+    return e.parent == nil || e.parent == e
+}
 
+element_root :: proc (e : ^Element) -> (root : ^Element) {
+    if element_isRoot(e) { return e }
+    return element_root(e.parent)
+}
 
 element_assignParentRecurse :: proc (root : ^Element) {
     for e in root.children {
@@ -162,7 +206,7 @@ element_assignParentRecurse :: proc (root : ^Element) {
 }
 
 element_getParentIndex :: proc (target : ^Element) -> int {
-    if target.parent == nil || target.parent == target { return 0 }
+    if element_isRoot(target) { return 0 }
 
     // NOTE: should never return -1 if set up correctly
     i, s := slice.linear_search(target.parent.children, target)
@@ -173,7 +217,7 @@ element_getParentIndex :: proc (target : ^Element) -> int {
 }
 
 element_getParentIndexSameKind :: proc (target : ^Element) -> int {
-    if target.parent == nil || target.parent == target { return 0 }
+    if element_isRoot(target) { return 0 }
 
     i := 0
     for e in target.parent.children {
@@ -199,7 +243,7 @@ element_getFullKindName :: proc (target : ^Element) -> string {
 
     for e, i in l {
         if i != 0 {
-            fmt.sbprint(&b, " > ")
+            fmt.sbprint(&b, " / ")
         }
 
         fmt.sbprintf(&b, "%v #%v", e.kind, element_getParentIndexSameKind(e))
@@ -235,6 +279,7 @@ Element_default :: Element{
     negotiate = negotiate_default,
     input = input_default,
     inputFocus = inputFocus_default,
+    focus = focus_default,
     navigate = navigate_default,
 }
 
@@ -243,6 +288,11 @@ Element_Label_default :: Element_Label{
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
+
+        if self.focused {
+            c_style(ctx.commandBuffer, FontStyle{ fg = FontColor_Standard.Black, bg = FontColor_Standard.White })
+            cc_fill(ctx.commandBuffer, rect)
+        }
 
         name := element_getFullKindName(self)
         defer delete(name)
@@ -272,6 +322,7 @@ Element_Label_default :: Element_Label{
 
     input = input_default,
     inputFocus = inputFocus_default,
+    focus = focus_default,
     navigate = navigate_default,
 }
 
@@ -289,7 +340,42 @@ Element_Table_default :: Element_Table{
 
     input = input_default,
     inputFocus = inputFocus_default,
-    navigate = navigate_default,
+    focus = proc (self : ^Element) {
+        self := cast(^Element_Table)self
+
+        n, _ := buffer_get(self.configuration, { 0, 0 })
+        e := self.children[n]
+
+        element_unfocus(self)
+        element_focus(e)
+    },
+    navigate = proc (self : ^Element, dir : NavDirection) {
+        self := cast(^Element_Table)self
+
+        focus, found := element_findFocus(self)
+        if !found || focus == self { return }
+
+        for focus.parent != self {
+            focus = focus.parent
+        }
+
+        for x in 0..<self.configuration.rect.z {
+            for y in 0..<self.configuration.rect.w {
+                n := buffer_get(self.configuration, { x, y }) or_continue
+                e := self.children[n]
+                if e != focus { continue }
+
+                if e == focus {
+                    pos := Pos{ x, y } + Pos_from_NavDirection(dir)
+                    n := buffer_get(self.configuration, pos) or_continue
+                    e := self.children[n]
+
+                    element_unfocus(focus)
+                    element_focus(e)
+                }
+            }
+        }
+    },
 }
 
 Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^RenderingContext, render : bool) -> (size : Pos) {

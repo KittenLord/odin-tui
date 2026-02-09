@@ -454,6 +454,10 @@ run :: proc () -> bool {
 
         input = input_default,
         inputFocus = inputFocus_default,
+        focus = proc (self : ^Element) {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        },
         navigate = navigate_default,
     }
 
@@ -470,6 +474,10 @@ run :: proc () -> bool {
 
         input = input_default,
         inputFocus = inputFocus_default,
+        focus = proc (self : ^Element) {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        },
         navigate = navigate_default,
     }
 
@@ -486,6 +494,10 @@ run :: proc () -> bool {
 
         input = input_default,
         inputFocus = inputFocus_default,
+        focus = proc (self : ^Element) {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        },
         navigate = navigate_default,
     }
 
@@ -516,6 +528,10 @@ run :: proc () -> bool {
 
         input = input_default,
         inputFocus = inputFocus_default,
+        focus = proc (self : ^Element) {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        },
         navigate = navigate_default,
     }
 
@@ -547,18 +563,25 @@ run :: proc () -> bool {
         builder = str.builder_make_none(),
     }
 
+
+    root->focus()
+
     for _ in 0..<6 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
 
-
-
         element_input(&root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
+
+
+
 
         buffer_reset(box, BoxType.None)
         buffer_reset(screen, '\x00')
         c_reset(&cb)
 
+
+
+        c_styleClear(&cb)
         c_clear(&cb)
 
         ctx := RenderingContext{
