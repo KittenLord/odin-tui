@@ -333,25 +333,73 @@ Element_Linear_default :: Element_Linear{
     kind = "Linear",
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-        self := cast(^Element_Linear)self
-        // linear container has two directions - single and linear
+        Element_Linear_internalRender(self, ctx, rect, rect.zw, true)
+    },
 
-        singleMax : i16 = 0
-        linearTotal : i16 = 0
+    negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        return Element_Linear_internalRender(self, nil, Rect{ 0, 0, constraints.maxSize.x, constraints.maxSize.y }, constraints.preferredSize, false)
+    },
 
-        h := self.isHorizontal
-        singleLimit := h ? rect.w : rect.z
-        linearLimit := h ? rect.z : rect.w
+    input = input_default,
+    inputFocus = inputFocus_default,
+    focus = focus_default,
+    navigate = navigate_default,
+}
 
-        mflip :: proc (p : Pos, h : bool) -> Pos {
-            if h { return p.xy }
-            else { return p.yx }
-        }
+
+Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect, preferred : Pos, rendering : bool) -> (size : Pos) {
+    self := cast(^Element_Linear)self
+
+    sizes := make([]i16, len(self.children))
+    defer delete(sizes)
+
+    caps := make([]u64, len(self.children))
+    defer delete(caps)
+
+    deltas := make([]i64, len(self.children))
+    defer delete(deltas)
+
+    priorities := make([]u64, len(self.children))
+    defer delete(priorities)
+
+    for s, i in self.stretching {
+        priorities[i] = calculatePriority(s)
+    }
+
+    // NOTE: vertical is default, therefore
+    // x => single
+    // y => linear
+
+    h := self.isHorizontal
+    mflip :: proc (p : Pos, h : bool) -> Pos {
+        if !h { return p.xy }
+        else  { return p.yx }
+    }
+
+    singleMax : i16 = 0
+    singlePreferred := mflip(preferred, h).x
+
+    singleLimit := mflip(rect.zw, h).x
+    linearLimit := mflip(rect.zw, h).y
+    linearLimits := make([]i16, len(self.children))
+    defer delete(linearLimits)
+
+    for &l in linearLimits {
+        l = linearLimit
+    }
+
+    linearTotal : i16 = 0
+
+
+    lastIteration :: 1
+    for iteration in 0 ..= lastIteration {
+        linearTotal = 0
+        singleMax = 0
 
         for c, i in self.children {
-            maxSize := Pos{ singleLimit, linearLimit }
+            maxSize := Pos{ singleLimit, linearLimits[i] }
 
-            preferredSize := Pos{ singleLimit, linearLimit / cast(i16)len(self.children) }
+            preferredSize := Pos{ singlePreferred, math.min(linearLimits[i], linearLimit / cast(i16)len(self.children)) }
             if self.stretching[i].fill == .MinimalPossible { preferredSize.y = 1 }
 
             wbhRatio : f64 = 1
@@ -361,8 +409,42 @@ Element_Linear_default :: Element_Linear{
 
             singleMax = math.max(singleMax, size.x)
             linearTotal += size.y
+            sizes[i] = size.y
+        }
+
+        delta := mflip(rect.zw, h).y - linearTotal
+
+        if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0 }
+
+        limit := delta < 0 ? caps : nil
+
+        for &c, i in caps { c = cast(u64)math.abs(sizes[i]) }
+
+        divideBetween(cast(u64)math.abs(delta), priorities, transmute([]u64)deltas, maxValues = limit)
+
+        for d, i in deltas {
+            linearLimits[i] = sizes[i] + (sign_i16(delta) * cast(i16)d)
         }
     }
+
+    linearTotal = math.sum(linearLimits)
+
+    if !rendering {
+        size = mflip(Pos{ singleMax, linearTotal }, h)
+        return
+    }
+
+    offset := rect.xy
+    for c, i in self.children {
+        size := Pos{ singleLimit, linearLimits[i] }
+        size = mflip(size, h)
+
+        element_render(c, ctx, { offset.x, offset.y, size.x, size.y })
+
+        offset += mflip(Pos{ 0, linearLimits[i] }, h)
+    }
+
+    return
 }
 
 
@@ -417,6 +499,20 @@ Element_Table_default :: Element_Table{
     },
 }
 
+calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
+    m : u64 = math.max(cast(u64)s.priority, 1)
+    switch s.fill {
+    case .MinimalPossible:
+        m = 1
+    case .MinimalNecessary:
+        m *= 10
+    case .Expand:
+        m *= 50
+    }
+
+    return m
+}
+
 Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^RenderingContext, render : bool) -> (size : Pos) {
     self := cast(^Element_Table)self
 
@@ -457,19 +553,6 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
 
 
-    calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
-        m : u64 = math.max(cast(u64)s.priority, 1)
-        switch s.fill {
-        case .MinimalPossible:
-            m = 1
-        case .MinimalNecessary:
-            m *= 10
-        case .Expand:
-            m *= 50
-        }
-
-        return m
-    }
 
 
     for &l in limCols { l = rect.z }

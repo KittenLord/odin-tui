@@ -432,13 +432,24 @@ run :: proc () -> bool {
     p20table.stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 5, fill = .Expand } }
     p20table.stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } }
 
+    p20linear := Element_Linear_default
+    p20linear.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
+    p20linear.stretch = { false, false }
+    p20linear.isHorizontal = true
+    p20linear.stretching = {
+        Stretching{ priority = 1, fill = .MinimalNecessary },
+        Stretching{ priority = 1, fill = .MinimalNecessary },
+        Stretching{ priority = 1, fill = .MinimalNecessary },
+        Stretching{ priority = 1, fill = .MinimalNecessary },
+    }
+
     p20text := Element_Label_default
     p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20 := Element{
         kind = "P20",
 
-        children = { &p20table },
+        children = { &p20linear },
 
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
