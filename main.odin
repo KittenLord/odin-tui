@@ -582,7 +582,7 @@ run :: proc () -> bool {
 
     root->focus()
 
-    for _ in 0..<6 {
+    for _ in 0..<20 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
 

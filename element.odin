@@ -374,6 +374,7 @@ Element_Scroll_default :: Element_Scroll{
 
         srect := Rect{ 0, 0, size.x, size.y }
 
+        // NOTE: thank GOD we don't have or_do!!!!!
         for _ in 0..<1 {
             buffer := buffer_create(srect, CellData) or_break
             screen := buffer_create(srect, rune) or_break
@@ -413,18 +414,19 @@ Element_Scroll_default :: Element_Scroll{
 
         switch input {
         case 'h':
-            self.offset.x -= 1
+            if self.scroll.x { self.offset.x -= 1 }
         case 'j':
-            self.offset.y += 1
+            if self.scroll.y { self.offset.y += 1 }
         case 'k':
-            self.offset.y -= 1
+            if self.scroll.y { self.offset.y -= 1 }
         case 'l':
-            self.offset.x += 1
+            if self.scroll.x { self.offset.x += 1 }
         case:
             break
         }
 
-        // TODO: if hit border, do navigation
+        // TODO: if hit border, do navigation (actually im not exactly sure how do we calculate border without re-rendering? previous rect won't be always reliable, will it?)
+        // TODO: on render we check whether the offset (+ size) directly touches the boundary, if yes, and the same-direction input is pressed, we navigate
 
         // TODO: also bounds checking
     },
