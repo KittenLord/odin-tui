@@ -20,6 +20,7 @@ import "core:log"
 
 
 
+// TODO: Rect -> Pos, rect is kinda bad in retrospect
 
 // NOTE: data is sequential rows
 Buffer :: struct($Item : typeid) {
@@ -434,8 +435,8 @@ run :: proc () -> bool {
 
     p20linear := Element_Linear_default
     p20linear.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
-    p20linear.stretch = { false, false }
-    p20linear.isHorizontal = true
+    p20linear.stretch = { false, true }
+    p20linear.isHorizontal = false
     p20linear.stretching = {
         Stretching{ priority = 1, fill = .MinimalNecessary },
         Stretching{ priority = 1, fill = .MinimalNecessary },
@@ -443,13 +444,17 @@ run :: proc () -> bool {
         Stretching{ priority = 1, fill = .MinimalNecessary },
     }
 
+    p20scroll := Element_Scroll_default
+    p20scroll.children = { &p20linear }
+    p20scroll.scroll = { false, true }
+
     p20text := Element_Label_default
     p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20 := Element{
         kind = "P20",
 
-        children = { &p20linear },
+        children = { &p20scroll },
 
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)

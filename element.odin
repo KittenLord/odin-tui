@@ -32,6 +32,7 @@ Pos_from_NavDirection :: proc (n : NavDirection) -> Pos {
 Element :: struct {
     kind : string,
 
+    // TODO: maybe for some elements it would be useful to have (child : ^Element)?
     children : []^Element,
     parent : ^Element,
     stretch : [2]bool,
@@ -274,6 +275,20 @@ Element_Linear :: struct {
     stretching : []Stretching,
 }
 
+Element_Scroll :: struct {
+    using base : Element,
+
+    scroll : [2]bool,
+    // scrollbar : [2]bool,
+
+    // NOTE:
+    // true  -> searches for the focused element, tries to fit it within the rendered rect
+    // false -> just changes the offset
+    targetFocus : bool,
+
+    offset : Pos,
+}
+
 
 Element_default :: Element{
     kind = "Element",
@@ -343,6 +358,87 @@ Element_Linear_default :: Element_Linear{
     input = input_default,
     inputFocus = inputFocus_default,
     focus = focus_default,
+    navigate = navigate_default,
+}
+
+Element_Scroll_default :: Element_Scroll{
+    kind = "Scroll",
+
+    render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+        self := cast(^Element_Scroll)self
+
+        c := self.children[0]
+        size := element_negotiate(c, Constraints{ maxSize = { 1000, 1000 }, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
+        // if size.x < rect.z { size.x = rect.z }
+        // if size.y < rect.w { size.y = rect.w }
+
+        srect := Rect{ 0, 0, size.x, size.y }
+
+        for _ in 0..<1 {
+            buffer := buffer_create(srect, CellData) or_break
+            screen := buffer_create(srect, rune) or_break
+            box := buffer_create(srect, BoxType) or_break
+
+            cb : CommandBuffer = CommandBuffer_Buffer{
+                buffer = buffer,
+
+                pos = { 0, 0 },
+                style = FontStyle_Default,
+            }
+
+            sctx := RenderingContext{
+                bufferBoxes = box,
+                screenRect = srect,
+                commandBuffer = &cb,
+            }
+
+            element_render(c, &sctx, sctx.screenRect)
+
+            resolveBoxBuffer(box, screen)
+            cc_bufferPresent(&cb, screen)
+
+            cc_bufferPresentCool(ctx.commandBuffer, cb.(CommandBuffer_Buffer).buffer, rect.xy, { self.offset.x, self.offset.y, rect.z, rect.w })
+        }
+    },
+
+    // TODO: we probably want as much space as possible on the non-scrollable axis (if any)
+    negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        return constraints.preferredSize
+    },
+
+    input = input_default,
+    inputFocus = proc (self : ^Element, input : rune) {
+        self := cast(^Element_Scroll)self
+        if self.targetFocus { return } // NOTE: should never happen
+
+        switch input {
+        case 'h':
+            self.offset.x -= 1
+        case 'j':
+            self.offset.y += 1
+        case 'k':
+            self.offset.y -= 1
+        case 'l':
+            self.offset.x += 1
+        case:
+            break
+        }
+
+        // TODO: if hit border, do navigation
+
+        // TODO: also bounds checking
+    },
+
+    focus = proc (self : ^Element) {
+        self := cast(^Element_Scroll)self
+
+        if !self.targetFocus { return }
+        else {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        }
+    },
+
     navigate = navigate_default,
 }
 

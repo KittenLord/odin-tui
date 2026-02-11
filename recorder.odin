@@ -274,6 +274,8 @@ c_styleGet :: proc (cbb : ^CommandBuffer) -> (style : FontStyle) {
     panic("bad")
 }
 
+// TODO: how do we change style for boxes?
+
 cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
     consecutive := true
     c_goto(cb, buffer.rect.xy)
@@ -292,6 +294,32 @@ cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
             }
 
             c_appendRune(cb, r)
+        }
+
+        // NOTE: unless buffer is the width of the screen
+        consecutive = false
+    }
+}
+
+// TODO: styles
+cc_bufferPresentCool :: proc (cb : ^CommandBuffer, buffer : Buffer(CellData), dstOffset : Pos, selection : Rect) {
+    consecutive := true
+    c_goto(cb, dstOffset)
+
+    for y in 0..<selection.w {
+        for x in 0..<selection.z {
+            c := buffer_get(buffer, { x, y } + selection.xy) or_continue
+            if c.r == '\x00' {
+                consecutive = false
+                continue
+            }
+
+            if !consecutive {
+                c_goto(cb, { x, y } + dstOffset)
+                consecutive = true
+            }
+
+            c_appendRune(cb, c.r)
         }
 
         // NOTE: unless buffer is the width of the screen
