@@ -7,6 +7,7 @@ import os "core:os/os2"
 import os_old "core:os"
 import "core:math"
 import "core:slice"
+import "core:time"
 
 import str "core:strings"
 import utf8 "core:unicode/utf8"
@@ -122,6 +123,206 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
     }
 }
 
+drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, ll_list : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
+    log.debugf("CALL")
+
+    ll_list := ll_list
+
+    if rendering {
+        ll_list = make([]i16, rect.w)
+        drawTextBetter(ctx, text, rect, align, wrap, false, ll_list)
+    }
+
+    defer if rendering {
+        delete(ll_list)
+    }
+
+    ll_new :: proc (writer : ^Writer, ll_list : []i16, ll_off : i16, ll_cur : ^i16, ll_spacebar : ^i16, minOffset : ^i16, align : Alignment) -> bool {
+        if writer_remaining(writer^).y <= 1 { return false }
+
+        precalculatedLength := ll_list != nil ? ll_list[writer.pos.y + ll_off + 1] : 0
+        // TODO: calculate offset based off alignment
+        offset := precalculatedLength == 0 ? 0 : (precalculatedLength * 0)
+        if offset < minOffset^ { minOffset^ = offset }
+
+        writer_newline(writer, offset)
+
+        if ll_list != nil { ll_list[writer.pos.y + ll_off] = 0 }
+
+        ll_cur^ = 0
+        ll_spacebar^ = 0
+
+        return true
+    }
+
+    ll_add :: proc (value : i16, writer : Writer, ll_list : []i16, ll_off : i16, ll_cur : ^i16, ll_max : ^i16) {
+        if ll_list != nil {
+            ll_list[writer.pos.y + ll_off] += value
+        }
+
+        ll_cur^ += value
+        if ll_cur^ > ll_max^ { ll_max^ = ll_cur^ }
+    }
+
+    State :: enum {
+        SkippingWhitespace,
+        CollectingShortWord,
+        DumpingLargeWord,
+    }
+
+    state : State = .SkippingWhitespace
+
+    minOffset : i16 = 0
+
+    sw_lo  := 0
+    sw_hi  := 0
+    sw_len : i16 = 0
+
+    ll_max : i16 = 0
+    ll_cur : i16 = 0
+    ll_spacebar : i16 = 0
+    ll_off := -rect.y
+
+    // TODO: the first line should be aligned and minOffset assigned
+    writer := Writer{ rect, rect.xy, rendering, ctx == nil ? nil : ctx.commandBuffer }
+    writer_start(&writer)
+
+    num := 0
+    l := len(text)
+    // NOTE: i is byte offset
+    outerLoop: for c, i in text {
+        cs := utf8.rune_size(c)
+        eof := (num + 1 >= l)
+
+        switchState := true
+        mainLoop: for switchState {
+            switchState = false
+
+            switch state {
+            case .SkippingWhitespace: {
+                if !str.is_space(c) {
+                    switchState = true
+                    state = .CollectingShortWord
+                    continue mainLoop
+                }
+
+                continue mainLoop
+            }
+            case .CollectingShortWord: {
+                if sw_len == 0 {
+                    sw_lo = i
+                    sw_hi = i
+                    sw_len = 0
+                }
+
+                if !str.is_space(c) {
+                    sw_hi = i + cs
+                    sw_len += 1
+                }
+                
+                if sw_len > rect.z {
+                    switchState = true
+                    state = .DumpingLargeWord
+                    continue mainLoop
+                }
+
+                if str.is_space(c) || eof {
+                    defer if eof { switchState = false }
+
+                    if (ll_spacebar + sw_len) <= writer_remaining(writer).x {
+                        if ll_spacebar == 1 {
+                            writer_writeOnCurrentLine(&writer, " ")
+                            ll_add(1, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                        }
+
+                        writer_writeOnCurrentLine(&writer, text[sw_lo:sw_hi])
+                        ll_add(sw_len, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                        ll_spacebar = 1
+                        sw_len = 0
+
+                        switchState = true
+                        state = .SkippingWhitespace
+                        continue mainLoop
+                    }
+
+                    switch wrap {
+                    case .NoWrapping: {
+                        ll_new(&writer, ll_list, ll_off, &ll_cur, &ll_spacebar, &minOffset, align) or_break outerLoop
+
+                        // NOTE: the word is guaranteed to fit into the newly opened line, we can reuse the short word code
+                        switchState = true
+                        state = .CollectingShortWord
+                        continue mainLoop
+                    }
+                    case .Wrapping: {
+                        switchState = true
+                        state = .DumpingLargeWord
+                        continue mainLoop
+                    }
+                    }
+                }
+            }
+            case .DumpingLargeWord: {
+                if ll_spacebar == 1 {
+                    if writer_remaining(writer).x < 1 {
+                        ll_new(&writer, ll_list, ll_off, &ll_cur, &ll_spacebar, &minOffset, align) or_break outerLoop
+                    }
+                    else {
+                        writer_writeOnCurrentLine(&writer, " ")
+                        ll_add(1, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                    }
+
+                    ll_spacebar = 0
+                }
+
+                if sw_len > 0 {
+                    sw_len = 0
+                    remaining : string = text[sw_lo:sw_hi]
+
+                    for len(remaining) > 0 {
+                        written : i16
+                        written, remaining, _ = writer_writeOnCurrentLine(&writer, remaining)
+                        ll_add(written, writer, ll_list, ll_off, &ll_cur, &ll_max)
+
+                        if len(remaining) > 0 {
+                            ll_new(&writer, ll_list, ll_off, &ll_cur, &ll_spacebar, &minOffset, align) or_break outerLoop
+                            written, _, _ = writer_writeOnCurrentLine(&writer, remaining)
+                            ll_add(written, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                        }
+                    }
+                }
+
+
+                if str.is_space(c) {
+                    switchState = true
+                    state = .SkippingWhitespace
+                    continue mainLoop
+                }
+
+                ok := writer_writeRuneOnCurrentLine(&writer, c)
+                if ok {
+                    ll_add(1, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                }
+                else {
+                    ll_new(&writer, ll_list, ll_off, &ll_cur, &ll_spacebar, &minOffset, align) or_break outerLoop
+                    writer_writeRuneOnCurrentLine(&writer, c)
+                    ll_add(1, writer, ll_list, ll_off, &ll_cur, &ll_max)
+                }
+            }
+            }
+        }
+
+        // NOTE: if we break in the outerLoop this will be less than length (hence no defer)
+        num += 1
+    }
+
+    if ll_cur != 0 { writer_newline(&writer) }
+
+    truncated = (num < l)
+    actualRect = Rect{ rect.x, rect.y, ll_max, writer.pos.y - rect.y }
+
+    return
+}
 
 // TODO: this should probably be entirely rewritten i dont like how hacky this is
 drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
@@ -583,9 +784,15 @@ run :: proc () -> bool {
 
     root->focus()
 
-    for _ in 0..<20 {
+    sw : time.Stopwatch
+
+    for _ in 0..<6 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
+
+
+        time.stopwatch_reset(&sw)
+        time.stopwatch_start(&sw)
 
         element_input(&root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
 
@@ -614,6 +821,10 @@ run :: proc () -> bool {
         cc_bufferPresent(&cb, screen)
 
         os.write_string(os.stdout, str.to_string(cb.(CommandBuffer_Stdout).builder))
+
+
+        time.stopwatch_stop(&sw)
+        log.debugf("DRAW TIME: %v", time.stopwatch_duration(sw))
     }
 
 
