@@ -321,23 +321,58 @@ Element_Label_default :: Element_Label{
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        // TODO: this is still kinda scuffed and doesnt take the price into account (and furthermore is heavily biased into larger height, which is good actually, but not always)
+
         self := cast(^Element_Label)self
 
         name := element_getFullKindName(self)
         defer delete(name)
 
-        referenceRect := constraints.preferredSize
-        rect, truncated := drawText(nil, self.text, { 0, 0, referenceRect.x, referenceRect.y }, { .Left, .Top }, .NoWrapping, rendering = false)
-        increment := Pos{ 0, 0 }
+        rect, truncated := drawText(nil, self.text, { 0, 0, constraints.maxSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        if truncated { return constraints.maxSize }
 
-        for truncated && (rect.zw + increment) != constraints.maxSize {
-            // TODO: increase increment
-            increment = buyIncrement(rect.zw, increment, constraints.maxSize, constraints.widthByHeightPriceRatio)
+        wlo : i16 = 0
+        whi : i16 = rect.z
+        wcc : i16 = 0
+        wtmp : i16 = 0
+        ry : i16 = 0
 
-            _, truncated = drawText(nil, self.text, { 0, 0, rect.z + increment.x, rect.w + increment.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        iteration := 0
+        for wlo < whi {
+            log.debugf("ITERATION %v %v %v", iteration, wlo, whi)
+            iteration += 1
+
+            wtmp = (wlo + whi) / 2
+            wrect := Rect{ 0, 0, wtmp, constraints.maxSize.y }
+            rect, truncated := drawText(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
+
+            // NOTE: we try to find the smallest width possible, so if it is NOT truncated, we try to find smaller
+
+            if truncated {
+                // If truncated, we need to search larger
+                wlo = wtmp + 1
+            }
+            else {
+                // If NOT truncated, search lower
+                if wtmp < constraints.preferredSize.x {
+                    wtmp = constraints.preferredSize.x
+                    wrect := Rect{ 0, 0, wtmp, constraints.maxSize.y }
+                    rect, _ := drawText(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
+
+                    whi = wtmp
+                    wcc = wtmp
+                    ry = rect.w
+
+                    break
+                }
+
+                whi = wtmp
+                wcc = wtmp
+                ry = rect.w
+            }
         }
-        
-        return rect.zw + increment
+
+        return { wcc, ry }
     },
 
     input = input_default,
