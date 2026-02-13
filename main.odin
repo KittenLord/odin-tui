@@ -444,17 +444,18 @@ run :: proc () -> bool {
         Stretching{ priority = 1, fill = .MinimalNecessary },
     }
 
-    p20scroll := Element_Scroll_default
-    p20scroll.children = { &p20linear }
-    p20scroll.scroll = { false, true }
-
     p20text := Element_Label_default
-    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
+    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
+    p20scroll := Element_Scroll_default
+    p20scroll.children = { &p20text }
+    p20scroll.scroll = { false, true }
+    p20scroll.scrollbar = { false, true }
+    
     p20 := Element{
         kind = "P20",
 
-        children = { &p20scroll },
+        children = { &p20linear },
 
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)

@@ -74,6 +74,10 @@ FontStyle :: struct {
     mode : FontMode,
 }
 
+// TODO: wouldn't it make more sense to use buffers for everything and
+// stdout only for the very final step? I guess it is kinda more efficient
+// in some cases, but idk. Probably doesn't matter either way tbh
+
 // TODO: Is default just no mode and Standard.Default color?
 // NOTE: how the fuck is this not a compile time constant
 FontStyle_Default := FontStyle{

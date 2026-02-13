@@ -279,7 +279,9 @@ Element_Scroll :: struct {
     using base : Element,
 
     scroll : [2]bool,
-    // scrollbar : [2]bool,
+
+    // TODO: scrollbars on both sides? idk
+    scrollbar : [2]bool,
 
     // NOTE:
     // true  -> searches for the focused element, tries to fit it within the rendered rect
@@ -367,8 +369,16 @@ Element_Scroll_default :: Element_Scroll{
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Scroll)self
 
+        oldRect := rect
+        rect := rect
+
+        if self.scrollbar.x { rect.w -= 1 }
+        if self.scrollbar.y { rect.z -= 1 }
+
+        maxSize := Pos{ self.scroll.x ? 1000 : rect.z, self.scroll.y ? 1000 : rect.w }
+
         c := self.children[0]
-        size := element_negotiate(c, Constraints{ maxSize = { 1000, 1000 }, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
+        size := element_negotiate(c, Constraints{ maxSize = maxSize, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
         // if size.x < rect.z { size.x = rect.z }
         // if size.y < rect.w { size.y = rect.w }
 
@@ -376,6 +386,7 @@ Element_Scroll_default :: Element_Scroll{
 
         // NOTE: thank GOD we don't have or_do!!!!!
         for _ in 0..<1 {
+            // TODO: free resources lol
             buffer := buffer_create(srect, CellData) or_break
             screen := buffer_create(srect, rune) or_break
             box := buffer_create(srect, BoxType) or_break
@@ -398,7 +409,37 @@ Element_Scroll_default :: Element_Scroll{
             resolveBoxBuffer(box, screen)
             cc_bufferPresent(&cb, screen)
 
+
+
+
+
+
+
             cc_bufferPresentCool(ctx.commandBuffer, cb.(CommandBuffer_Buffer).buffer, rect.xy, { self.offset.x, self.offset.y, rect.z, rect.w })
+
+
+            if self.scrollbar.y {
+                scrollbarY := cast(i16)((cast(f64)rect.w / cast(f64)srect.w) * cast(f64)(oldRect.w - 2))
+                scrollbarOffsetY := cast(i16)((cast(f64)self.offset.y / cast(f64)srect.w) * cast(f64)(oldRect.w - 2))
+
+                log.debugf("SCROLL %v %v %v %v", scrollbarY, scrollbarOffsetY, rect.w, srect.w)
+
+                if scrollbarY >= (oldRect.w - 2) {
+                    scrollbarY = (oldRect.w - 2)
+                    scrollbarOffsetY = 0
+                }
+
+                screct := Rect{ oldRect.x + oldRect.z - 1, oldRect.y + 1 + scrollbarOffsetY, 1, scrollbarY }
+                cc_fill(ctx.commandBuffer, screct, '𜸩')
+
+                c_goto(ctx.commandBuffer, { oldRect.x + oldRect.z - 1, oldRect.y })
+                c_appendRune(ctx.commandBuffer, '█')
+
+                c_goto(ctx.commandBuffer, { oldRect.x + oldRect.z - 1, oldRect.y + oldRect.w - 1 })
+                c_appendRune(ctx.commandBuffer, '█')
+            }
+
+
         }
     },
 
