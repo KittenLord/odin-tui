@@ -14,6 +14,30 @@ import utf8 "core:unicode/utf8"
 
 import "core:log"
 
+import "core:prof/spall"
+import "base:runtime"
+import "core:sync"
+
+
+
+
+when ODIN_DEBUG {
+    spall_ctx: spall.Context
+    @(thread_local) spall_buffer: spall.Buffer
+
+    // Automatic profiling of every procedure:
+
+    @(instrumentation_enter)
+    spall_enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+    	spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+    }
+
+    @(instrumentation_exit)
+    spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+    	spall._buffer_end(&spall_ctx, &spall_buffer)
+    }
+}
+
 
 
 
@@ -646,7 +670,7 @@ run :: proc () -> bool {
     }
 
     p20text := Element_Label_default
-    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
+    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20scroll := Element_Scroll_default
     p20scroll.children = { &p20text }
@@ -786,7 +810,7 @@ run :: proc () -> bool {
 
     sw : time.Stopwatch
 
-    for _ in 0..<6 {
+    for _ in 0..<2 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
 
@@ -832,5 +856,22 @@ run :: proc () -> bool {
 }
 
 main :: proc () {
+    when ODIN_DEBUG {
+        spall_ctx = spall.context_create("trace_test.spall")
+        defer spall.context_destroy(&spall_ctx)
+
+        buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+        defer delete(buffer_backing)
+
+        spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+        defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+
+        spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+    }
+
+
+
+
+
     run()
 }
