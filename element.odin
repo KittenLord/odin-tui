@@ -14,11 +14,11 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 
-NavDirection :: enum {
+Nav :: enum {
     N, E, S, W,
 }
 
-Pos_from_NavDirection :: proc (n : NavDirection) -> Pos {
+Pos_from_Nav :: proc (n : Nav) -> Pos {
     switch n {
     case .N: return { 0, -1 }
     case .E: return { 1, 0 }
@@ -27,6 +27,25 @@ Pos_from_NavDirection :: proc (n : NavDirection) -> Pos {
     }
 
     panic("bad")
+}
+
+is_hjkl :: proc (r : rune) -> bool {
+    return r == 'h' || r == 'j' || r == 'k' || r == 'l'
+}
+
+Nav_from_hjkl :: proc (r : rune) -> Nav {
+    switch r {
+    case 'h': return .W
+    case 'j': return .S
+    case 'k': return .N
+    case 'l': return .E
+    }
+
+    panic("bad")
+}
+
+Pos_from_hjkl :: proc (r : rune) -> Pos {
+    return Pos_from_Nav(Nav_from_hjkl(r))
 }
 
 Element :: struct {
@@ -47,7 +66,7 @@ Element :: struct {
     inputFocus : proc (self : ^Element, input : rune),
 
     focus      : proc (self : ^Element),
-    navigate   : proc (self : ^Element, dir : NavDirection),
+    navigate   : proc (self : ^Element, dir : Nav),
 }
 
 render_default :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
@@ -81,7 +100,7 @@ focus_default :: proc (self : ^Element) {
     return
 }
 
-navigate_default :: proc (self : ^Element, dir : NavDirection) {
+navigate_default :: proc (self : ^Element, dir : Nav) {
     if element_isRoot(self) { return }
     self.parent->navigate(dir)
     return
@@ -157,6 +176,20 @@ element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = fa
         if found { break }
     }
 
+    return
+}
+
+element_findChildWithFocus :: proc (e : ^Element, focus : ^Element = nil) -> (child : ^Element, found : bool = false) {
+    focus := focus
+    if focus == nil {
+        focus = element_findFocus(e) or_return
+    }
+
+    for focus.parent != e {
+        focus = focus.parent
+    }
+
+    child = focus
     return
 }
 
@@ -307,6 +340,7 @@ Element_Scroll :: struct {
     targetFocus : bool,
 
     offset : Pos,
+    remaining : Pos,
 }
 
 
@@ -420,24 +454,20 @@ Element_Linear_default :: Element_Linear{
         element_focus(self.children[0])
     },
 
-    navigate = proc (self : ^Element, dir : NavDirection) {
+    navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Linear)self
 
         focus, found := element_findFocus(self)
         if !found || focus == self { return }
         pfocus := focus
 
-        for focus.parent != self {
-            focus = focus.parent
-        }
+        focus, _ = element_findChildWithFocus(self, focus)
 
         i, f := slice.linear_search(self.children, focus)
 
         m := Pos{ i16(self.isHorizontal), i16(!self.isHorizontal) }
-        ss := (m * Pos_from_NavDirection(dir))
+        ss := (m * Pos_from_Nav(dir))
         s := ss.x + ss.y
-
-        log.debugf("NAV %v %v %v %v %v %v", m, ss, s, dir, i, f)
 
         if s == 0 { return }
 
@@ -470,6 +500,8 @@ Element_Scroll_default :: Element_Scroll{
         // if size.y < rect.w { size.y = rect.w }
 
         srect := Rect{ 0, 0, size.x, size.y }
+
+        self.remaining = (srect.zw - self.offset) - rect.zw
 
         // NOTE: thank GOD we don't have or_do!!!!!
         for _ in 0..<1 {
@@ -505,18 +537,27 @@ Element_Scroll_default :: Element_Scroll{
             cc_bufferPresentCool(ctx.commandBuffer, cb.(CommandBuffer_Buffer).buffer, rect.xy, { self.offset.x, self.offset.y, rect.z, rect.w })
 
 
+            calculateScrollbar :: proc (visible : i16, total : i16, scroll : i16, offset : i16) -> (start_size : Pos) {
+                v := cast(f64)visible
+                t := cast(f64)total
+                s := cast(f64)scroll
+                o := cast(f64)offset
+
+                start_size.x = cast(i16)math.round((o / t) * s)
+                start_size.y = cast(i16)math.round((v / t) * s)
+
+                if offset == 0 { start_size.x = 0 }
+                if offset > 0 && start_size.x == 0 && start_size.y < scroll { start_size.x += 1 }
+                if offset + visible >= total && start_size.x + start_size.y < scroll { start_size.x += 1 }
+                if offset + visible < total && start_size.x + start_size.y == scroll && start_size.x > 0 { start_size.x -= 1 }
+
+                return
+            }
+
             if self.scrollbar.y {
-                scrollbarY := cast(i16)((cast(f64)rect.w / cast(f64)srect.w) * cast(f64)(oldRect.w - 2))
-                scrollbarOffsetY := cast(i16)((cast(f64)self.offset.y / cast(f64)srect.w) * cast(f64)(oldRect.w - 2))
+                start_size := calculateScrollbar(rect.w, srect.w, oldRect.w - 2, self.offset.y)
 
-                log.debugf("SCROLL %v %v %v %v", scrollbarY, scrollbarOffsetY, rect.w, srect.w)
-
-                if scrollbarY >= (oldRect.w - 2) {
-                    scrollbarY = (oldRect.w - 2)
-                    scrollbarOffsetY = 0
-                }
-
-                screct := Rect{ oldRect.x + oldRect.z - 1, oldRect.y + 1 + scrollbarOffsetY, 1, scrollbarY }
+                screct := Rect{ oldRect.x + oldRect.z - 1, oldRect.y + 1 + start_size.x, 1, start_size.y }
                 cc_fill(ctx.commandBuffer, screct, '𜸩')
 
                 c_goto(ctx.commandBuffer, { oldRect.x + oldRect.z - 1, oldRect.y })
@@ -540,23 +581,39 @@ Element_Scroll_default :: Element_Scroll{
         self := cast(^Element_Scroll)self
         if self.targetFocus { return } // NOTE: should never happen
 
-        switch input {
-        case 'h':
-            if self.scroll.x { self.offset.x -= 1 }
-        case 'j':
-            if self.scroll.y { self.offset.y += 1 }
-        case 'k':
-            if self.scroll.y { self.offset.y -= 1 }
-        case 'l':
-            if self.scroll.x { self.offset.x += 1 }
-        case:
-            break
+        if !is_hjkl(input) { return }
+
+        dir := Nav_from_hjkl(input)
+        step := Pos_from_Nav(dir)
+
+        if !self.scroll.x && step.x != 0 {
+            self->navigate(dir)
+            return
         }
 
-        // TODO: if hit border, do navigation (actually im not exactly sure how do we calculate border without re-rendering? previous rect won't be always reliable, will it?)
-        // TODO: on render we check whether the offset (+ size) directly touches the boundary, if yes, and the same-direction input is pressed, we navigate
+        if !self.scroll.y && step.y != 0 {
+            self->navigate(dir)
+            return
+        }
 
-        // TODO: also bounds checking
+        if step.x >= 1 && self.remaining.x <= 0 {
+            self->navigate(dir)
+            return
+        }
+
+        if step.y >= 1 && self.remaining.y <= 0 {
+            self->navigate(dir)
+            return
+        }
+
+        newOffset := self.offset + step
+
+        if newOffset.x < 0 || newOffset.y < 0 {
+            self->navigate(dir)
+            return
+        }
+
+        self.offset = newOffset
     },
 
     focus = proc (self : ^Element) {
@@ -696,16 +753,14 @@ Element_Table_default :: Element_Table{
         element_unfocus(self)
         element_focus(e)
     },
-    navigate = proc (self : ^Element, dir : NavDirection) {
+    navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Table)self
 
         focus, found := element_findFocus(self)
         if !found || focus == self { return }
         pfocus := focus
 
-        for focus.parent != self {
-            focus = focus.parent
-        }
+        focus, _ = element_findChildWithFocus(self, focus)
 
         for x in 0..<self.configuration.rect.z {
             for y in 0..<self.configuration.rect.w {
@@ -714,7 +769,7 @@ Element_Table_default :: Element_Table{
                 if e != focus { continue }
 
                 if e == focus {
-                    pos := Pos{ x, y } + Pos_from_NavDirection(dir)
+                    pos := Pos{ x, y } + Pos_from_Nav(dir)
                     n := buffer_get(self.configuration, pos) or_continue
                     e := self.children[n]
 
