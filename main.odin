@@ -348,210 +348,6 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
     return
 }
 
-// TODO: this should probably be entirely rewritten i dont like how hacky this is
-drawText :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, lineLengths : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
-    lineLengths := lineLengths
-
-    if rendering {
-        lineLengths = make([]i16, rect.w)
-        drawText(ctx, text, rect, align, wrap, false, lineLengths)
-    }
-
-    defer if rendering {
-        delete(lineLengths)
-    }
-
-    buffer := make([]u8, rect.z * 4)
-    defer delete(buffer)
-    
-    sb := str.builder_from_bytes(buffer)
-
-    // ALIGN
-    r := Writer{ rect, rect.xy, rendering, ctx == nil ? nil : ctx.commandBuffer }
-    writer_start(&r)
-
-    if lineLengths != nil { lineLengths[0] = 0 }
-
-    loff := -rect.y
-
-    currentLine : i16 = 0
-    maxLine : i16 = 0
-    minOffset : i16 = 0
-
-    newlineAligned :: proc (r : ^Writer, lineLengths : []i16, loff : i16, currentLine : ^i16, minOffset : ^i16, align : Alignment) -> bool {
-        if writer_remaining(r^).y <= 1 { return false }
-
-        precalculatedLength := lineLengths != nil ? lineLengths[r.pos.y + loff + 1] : 0
-        // TODO: calculate offset based off alignment
-        offset := precalculatedLength == 0 ? 0 : (precalculatedLength * 0)
-        if offset < minOffset^ { minOffset^ = offset }
-
-        writer_newline(r, offset)
-
-        if lineLengths != nil { lineLengths[r.pos.y + loff] = 0 }
-        currentLine^ = 0
-
-        return true
-    }
-
-    increaseLineLength :: proc (value : i16, r : Writer, lineLengths : []i16, loff : i16, currentLine : ^i16, maxLine : ^i16) {
-        if lineLengths != nil {
-            lineLengths[r.pos.y + loff] += value
-        }
-
-        currentLine^ += value
-        if currentLine^ > maxLine^ { maxLine^ = currentLine^ }
-    }
-
-
-
-
-    State :: enum {
-        SkippingWhitespace,
-        CollectingShortWord,
-        DumpingLargeWord,
-    }
-
-    state : State = .SkippingWhitespace
-
-
-
-    singleCharacterTruncated := false
-    text := text
-    mainLoop: for len(text) > 0 || str.builder_len(sb) > 0 {
-        advance := true
-
-        c := utf8.rune_at_pos(text, 0)
-        eof := len(text) == 0
-
-        defer if advance {
-            text, _ = substring_from(text, 1)
-        }
-
-        switch state {
-        case .SkippingWhitespace: {
-            if !str.is_space(c) {
-                advance = false
-                state = .CollectingShortWord
-                continue mainLoop
-            }
-
-            continue mainLoop
-        }
-        case .CollectingShortWord: {
-            if eof || str.is_space(c) {
-                advance = false
-                state = .SkippingWhitespace
-
-                spacebar := currentLine != 0 ? 1 : 0
-
-                if writer_remaining(r).x >= i16(str.builder_len(sb) + spacebar) {
-                    increaseLineLength(i16(str.builder_len(sb) + spacebar), r, lineLengths, loff, &currentLine, &maxLine)
-
-                    if spacebar == 1 { writer_writeOnCurrentLine(&r, " ") }
-                    writer_writeOnCurrentLine(&r, str.to_string(sb))
-                    str.builder_reset(&sb)
-
-                    continue mainLoop
-                }
-
-
-                switch wrap {
-                case .NoWrapping: {
-                    if writer_remaining(r).x < i16(str.builder_len(sb) + spacebar) {
-                        if writer_remaining(r).y <= 1 {
-                            state = .DumpingLargeWord
-                            continue mainLoop
-                        }
-
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-                    }
-                    else if spacebar == 1 {
-                        writer_writeOnCurrentLine(&r, " ")
-                        increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
-                    }
-
-                    writer_writeOnCurrentLine(&r, str.to_string(sb))
-                    increaseLineLength(cast(i16)len(str.to_string(sb)), r, lineLengths, loff, &currentLine, &maxLine)
-                    str.builder_reset(&sb)
-                }
-                case .Wrapping: {
-                    state = .DumpingLargeWord
-                    continue mainLoop
-                }
-                }
-            }
-            else {
-                str.write_rune(&sb, c)
-
-                if str.builder_len(sb) >= cast(int)rect.z {
-                    state = .DumpingLargeWord
-                    continue mainLoop
-                }
-            }
-        }
-        case .DumpingLargeWord: {
-            if str.builder_len(sb) != 0 {
-                if currentLine != 0 {
-                    if writer_remaining(r).x >= 2 {
-                        writer_writeOnCurrentLine(&r, " ")
-                        increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
-                    }
-                    else {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-                    }
-                }
-
-                remaining := str.to_string(sb)
-
-                for len(remaining) > 0 {
-                    written : i16
-                    written, remaining, _ = writer_writeOnCurrentLine(&r, remaining)
-                    increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
-
-                    if len(remaining) > 0 {
-                        newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-                        written, _, _ = writer_writeOnCurrentLine(&r, remaining)
-                        increaseLineLength(written, r, lineLengths, loff, &currentLine, &maxLine)
-                    }
-                }
-
-                str.builder_reset(&sb)
-            }
-
-            if eof { break mainLoop }
-
-            if str.is_space(c) {
-                advance = false
-                state = .SkippingWhitespace
-                continue mainLoop
-            }
-
-            ok := writer_writeRuneOnCurrentLine(&r, c)
-            if ok { increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine) }
-            if !ok {
-                singleCharacterTruncated = true
-                newlineAligned(&r, lineLengths, loff, &currentLine, &minOffset, align) or_break mainLoop
-
-                ok = writer_writeRuneOnCurrentLine(&r, c)
-                if ok {
-                    singleCharacterTruncated = false
-                    increaseLineLength(1, r, lineLengths, loff, &currentLine, &maxLine)
-                }
-                if !ok { break mainLoop } // NOTE: should never happen
-            }
-        }
-        }
-    }
-
-    if currentLine != 0 { writer_newline(&r) }
-
-    actualRect = { rect.x + minOffset, rect.y, maxLine, math.min(rect.w, r.pos.y - r.rect.y) }
-    truncated = (len(text) != 0 || str.builder_len(sb) != 0 || singleCharacterTruncated)
-
-    return
-}
-
 
 
 
@@ -670,7 +466,7 @@ run :: proc () -> bool {
     }
 
     p20text := Element_Label_default
-    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
+    p20text.text = "According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible. According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible."
 
     p20scroll := Element_Scroll_default
     p20scroll.children = { &p20text }
@@ -810,7 +606,7 @@ run :: proc () -> bool {
 
     sw : time.Stopwatch
 
-    for _ in 0..<2 {
+    for _ in 0..<10 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
 
