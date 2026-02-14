@@ -110,11 +110,29 @@ element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : P
 }
 
 element_input :: proc (e : ^Element, input : rune) {
-    if e.focused { e->inputFocus(input) }
-    else         { e->input(input) }
+    // NOTE: prevents multiple elements from receiving the same inputs due to the focus changing mid-traversing
+    element_inputSingleFocus(e, input)
+    element_inputRawOnly(e, input)
+}
+
+element_inputSingleFocus :: proc (e : ^Element, input : rune) -> bool {
+    if e.focused {
+        e->inputFocus(input)
+        return true
+    }
 
     for c in e.children {
-        element_input(c, input)
+        if element_inputSingleFocus(c, input) { return true }
+    }
+
+    return false
+}
+
+element_inputRawOnly :: proc (e : ^Element, input : rune) {
+    if !e.focused { e->input(input) }
+
+    for c in e.children {
+        element_inputRawOnly(c, input)
     }
 }
 
@@ -394,8 +412,42 @@ Element_Linear_default :: Element_Linear{
 
     input = input_default,
     inputFocus = inputFocus_default,
-    focus = focus_default,
-    navigate = navigate_default,
+
+    focus = proc (self : ^Element) {
+        self := cast(^Element_Linear)self
+
+        element_unfocus(self)
+        element_focus(self.children[0])
+    },
+
+    navigate = proc (self : ^Element, dir : NavDirection) {
+        self := cast(^Element_Linear)self
+
+        focus, found := element_findFocus(self)
+        if !found || focus == self { return }
+        pfocus := focus
+
+        for focus.parent != self {
+            focus = focus.parent
+        }
+
+        i, f := slice.linear_search(self.children, focus)
+
+        m := Pos{ i16(self.isHorizontal), i16(!self.isHorizontal) }
+        ss := (m * Pos_from_NavDirection(dir))
+        s := ss.x + ss.y
+
+        log.debugf("NAV %v %v %v %v %v %v", m, ss, s, dir, i, f)
+
+        if s == 0 { return }
+
+        // TODO: optional wrapping?
+        if i == 0 && s < 0 { return }
+        if i == len(self.children) - 1 && s > 0 { return }
+
+        element_unfocus(pfocus)
+        element_focus(self.children[i + int(s)])
+    },
 }
 
 Element_Scroll_default :: Element_Scroll{
@@ -649,6 +701,7 @@ Element_Table_default :: Element_Table{
 
         focus, found := element_findFocus(self)
         if !found || focus == self { return }
+        pfocus := focus
 
         for focus.parent != self {
             focus = focus.parent
@@ -665,7 +718,7 @@ Element_Table_default :: Element_Table{
                     n := buffer_get(self.configuration, pos) or_continue
                     e := self.children[n]
 
-                    element_unfocus(focus)
+                    element_unfocus(pfocus)
                     element_focus(e)
                 }
             }

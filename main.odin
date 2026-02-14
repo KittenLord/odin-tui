@@ -475,7 +475,7 @@ run :: proc () -> bool {
     p20 := Element{
         kind = "P20",
 
-        children = { &p20scroll },
+        children = { &p20linear },
 
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
@@ -605,7 +605,7 @@ run :: proc () -> bool {
 
     sw : time.Stopwatch
 
-    for _ in 0..<10 {
+    for _ in 0..<30 {
         buffer : [32]u8
         n, err := os.read_at_least(os.stdin, buffer[:], 1)
 
