@@ -251,8 +251,6 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
                 }
 
                 if str.is_space(c) || eof {
-                    defer if eof { switchState = false }
-
                     if (ll_spacebar + sw_len) <= writer_remaining(writer).x {
                         if ll_spacebar == 1 {
                             writer_writeOnCurrentLine(&writer, " ")
@@ -264,7 +262,8 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
                         ll_spacebar = 1
                         sw_len = 0
 
-                        switchState = true
+                        // NOTE: if !str.is_space then we are at eof and we should consume the last character
+                        switchState = str.is_space(c)
                         state = .SkippingWhitespace
                         continue mainLoop
                     }
