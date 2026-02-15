@@ -80,7 +80,7 @@ FontStyle :: struct {
 
 // TODO: Is default just no mode and Standard.Default color?
 // NOTE: how the fuck is this not a compile time constant
-FontStyle_Default := FontStyle{
+FontStyle_default := FontStyle{
     mode = FontMode{},
     fg = FontColor_Standard.Default,
     bg = FontColor_Standard.Default,
@@ -180,7 +180,7 @@ c_appendRune :: proc (cbb : ^CommandBuffer, r : rune) {
         cbc := cb
         defer cbb^ = cbc
 
-        buffer_set(cbc.buffer, cbc.pos, CellData{ r = r })
+        buffer_set(cbc.buffer, cbc.pos, CellData{ r = r, style = cbc.style })
         cbc.pos.x += 1
         if cbc.pos.x >= cbc.buffer.rect.x + cbc.buffer.rect.z {
             cbc.pos.x = cbc.buffer.rect.x
@@ -233,12 +233,12 @@ c_styleClear :: proc (cbb : ^CommandBuffer) {
         defer cbb^ = cbc
 
         c_appendString(cbb, "\e[0m")
-        cbc.style = FontStyle_Default
+        cbc.style = FontStyle_default
     case CommandBuffer_Buffer:
         cbc := cb
         defer cbb^ = cbc
 
-        cbc.style = FontStyle_Default
+        cbc.style = FontStyle_default
     }
 }
 
@@ -310,12 +310,19 @@ cc_bufferPresentCool :: proc (cb : ^CommandBuffer, buffer : Buffer(CellData), ds
     consecutive := true
     c_goto(cb, dstOffset)
 
+    lastStyle := c_styleGet(cb)
+
     for y in 0..<selection.w {
         for x in 0..<selection.z {
             c := buffer_get(buffer, { x, y } + selection.xy) or_continue
             if c.r == '\x00' {
                 consecutive = false
                 continue
+            }
+
+            if c.style != {} && c.style != lastStyle {
+                c_style(cb, c.style)
+                lastStyle = c.style
             }
 
             if !consecutive {

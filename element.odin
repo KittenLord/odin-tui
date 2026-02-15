@@ -125,6 +125,7 @@ element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
 element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
     r := e->negotiate(constraints)
     r = { math.min(r.x, constraints.maxSize.x), math.min(r.y, constraints.maxSize.y) }
+
     return r
 }
 
@@ -169,7 +170,8 @@ element_unfocus :: proc (e : ^Element) {
 
 
 
-element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = false) {
+element_findFocus :: proc (e : ^Element, excludeSelf : bool = false) -> (focus : ^Element, found : bool = false) {
+    if e.focused && excludeSelf  { return }
     if e.focused { return e, true }
     for c in e.children {
         focus, found = element_findFocus(c)
@@ -181,9 +183,12 @@ element_findFocus :: proc (e : ^Element) -> (focus : ^Element, found : bool = fa
 
 element_findChildWithFocus :: proc (e : ^Element, focus : ^Element = nil) -> (child : ^Element, found : bool = false) {
     focus := focus
+
     if focus == nil {
         focus = element_findFocus(e) or_return
     }
+
+    if focus == e { return }
 
     for focus.parent != e {
         focus = focus.parent
@@ -389,9 +394,10 @@ Element_Label_default :: Element_Label{
         wtmp : i16 = 0
         ry : i16 = 0
 
+        found := false
+
         iteration := 0
-        for wlo < whi {
-            log.debugf("ITERATION %v %v %v", iteration, wlo, whi)
+        for wlo < whi || !found {
             iteration += 1
 
             wtmp = (wlo + whi) / 2
@@ -405,8 +411,10 @@ Element_Label_default :: Element_Label{
                 wlo = wtmp + 1
             }
             else {
+                found = true
                 // If NOT truncated, search lower
-                if wtmp < constraints.preferredSize.x {
+
+                if wtmp <= constraints.preferredSize.x {
                     wtmp = constraints.preferredSize.x
                     wrect := Rect{ 0, 0, wtmp, constraints.maxSize.y }
                     rect, _ := drawTextBetter(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
@@ -492,7 +500,7 @@ Element_Scroll_default :: Element_Scroll{
         if self.scrollbar.x { rect.w -= 1 }
         if self.scrollbar.y { rect.z -= 1 }
 
-        maxSize := Pos{ self.scroll.x ? 1000 : rect.z, self.scroll.y ? 1000 : rect.w }
+        maxSize := Pos{ self.scroll.x ? max(i16) : rect.z, self.scroll.y ? max(i16) : rect.w }
 
         c := self.children[0]
         size := element_negotiate(c, Constraints{ maxSize = maxSize, preferredSize = rect.zw, widthByHeightPriceRatio = 1 })
@@ -514,7 +522,7 @@ Element_Scroll_default :: Element_Scroll{
                 buffer = buffer,
 
                 pos = { 0, 0 },
-                style = FontStyle_Default,
+                style = FontStyle_default,
             }
 
             sctx := RenderingContext{
@@ -530,11 +538,28 @@ Element_Scroll_default :: Element_Scroll{
 
 
 
+            // TODO: tf do we do if element is bigger than rect? I guess we have to reemploy the !targetFocus scrolling in that situation
+            if focus, ok := element_findFocus(self, excludeSelf = true); self.targetFocus && ok {
+                fcrect := focus.lastRenderedRect
+                srect := Rect{ self.offset.x, self.offset.y, rect.z, rect.w }
+
+                if !is_rect_within_rect(fcrect, srect) {
+                    if fcrect.x < srect.x { srect.x = fcrect.x }
+                    if fcrect.y < srect.y { srect.y = fcrect.y }
+
+                    if fcrect.x + fcrect.z > srect.x + srect.z { srect.x += (fcrect.x + fcrect.z) - (srect.x + srect.z) }
+                    if fcrect.y + fcrect.w > srect.y + srect.w { srect.y += (fcrect.y + fcrect.w) - (srect.y + srect.w) }
+                }
+
+                self.offset = srect.xy
+            }
 
 
 
 
+            oldStyle := c_styleGet(ctx.commandBuffer)
             cc_bufferPresentCool(ctx.commandBuffer, cb.(CommandBuffer_Buffer).buffer, rect.xy, { self.offset.x, self.offset.y, rect.z, rect.w })
+            c_style(ctx.commandBuffer, oldStyle)
 
 
             calculateScrollbar :: proc (visible : i16, total : i16, scroll : i16, offset : i16) -> (start_size : Pos) {
@@ -619,10 +644,12 @@ Element_Scroll_default :: Element_Scroll{
     focus = proc (self : ^Element) {
         self := cast(^Element_Scroll)self
 
-        if !self.targetFocus { return }
-        else {
+        if self.targetFocus {
             element_unfocus(self)
             element_focus(self.children[0])
+        }
+        else {
+            return
         }
     },
 
@@ -688,6 +715,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
             wbhRatio : f64 = 1
 
             size := element_negotiate(c, Constraints{ maxSize = mflip(maxSize, h), preferredSize = mflip(preferredSize, h), widthByHeightPriceRatio = wbhRatio })
+
             size = mflip(size, h)
 
             singleMax = math.max(singleMax, size.x)
@@ -699,15 +727,25 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0 }
 
+        log.debugf("ITERATION %v", iteration)
+        log.debugf("DELTA: %v", delta)
+
         limit := delta < 0 ? caps : nil
 
         for &c, i in caps { c = cast(u64)math.abs(sizes[i]) }
 
         divideBetween(cast(u64)math.abs(delta), priorities, transmute([]u64)deltas, maxValues = limit)
 
+        log.debugf("LIMITS IT A %v", linearLimits)
+
+        log.debugf("SIZES %v", sizes)
+        log.debugf("DELTAS %v", deltas)
+
         for d, i in deltas {
             linearLimits[i] = sizes[i] + (sign_i16(delta) * cast(i16)d)
         }
+
+        log.debugf("LIMITS IT B %v", linearLimits)
     }
 
     linearTotal = math.sum(linearLimits)
@@ -716,6 +754,8 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         size = mflip(Pos{ singleMax, linearTotal }, h)
         return
     }
+
+    log.debugf("LIMITS %v", linearLimits)
 
     offset := rect.xy
     for c, i in self.children {
