@@ -386,9 +386,9 @@ writer_writeOnCurrentLine :: proc (r : ^Writer, text : string) -> (written : i16
     rm := writer_remaining(r^)
     l := math.min(cast(int)rm.x, len(text))
 
-    taken, _ := str.substring_to(text, l)
+    taken : string
+    taken, remaining,  _ = substring_to(text, l)
     written = cast(i16)len(taken)
-    remaining, _ = substring_from(text, l)
 
     if r.render {
         c_appendString(r.commandBuffer, taken)

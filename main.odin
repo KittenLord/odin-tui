@@ -45,7 +45,7 @@ when ODIN_DEBUG {
 
 
 
-// TODO: Rect -> Pos, rect is kinda bad in retrospect
+// TODO: Rect -> Pos, rect is kinda bad for buffers in retrospect
 
 // NOTE: data is sequential rows
 Buffer :: struct($Item : typeid) {
