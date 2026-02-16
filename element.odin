@@ -51,11 +51,9 @@ Pos_from_hjkl :: proc (r : rune) -> Pos {
 Element :: struct {
     kind : string,
 
-    // TODO: maybe for some elements it would be useful to have (child : ^Element)?
     children : []^Element,
-    parent : ^Element,
-    stretch : [2]bool,
 
+    parent : ^Element,
     focused : bool,
     lastRenderedRect : Rect,
 
@@ -67,6 +65,10 @@ Element :: struct {
 
     focus      : proc (self : ^Element),
     navigate   : proc (self : ^Element, dir : Nav),
+
+
+    // TODO: this might become a struct of style-related things
+    stretch : [2]bool,
 }
 
 render_default :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
@@ -324,11 +326,26 @@ Element_Label :: struct {
     text : string,
 }
 
+Element_Linear_StretchingOverride :: struct {
+    index : int,
+    s : Stretching,
+}
+
 Element_Linear :: struct {
     using base : Element,
 
     isHorizontal : bool,
-    stretching : []Stretching,
+
+    // NOTE: im not sure which is more useful
+
+    // The priority is the following:
+    // If stretching override is available, use it
+    // If not, but array element is available, use it
+    // If not, use stretching
+
+    stretching : Stretching,
+    stretchingArray : []Maybe(Stretching),
+    stretchingOverrides : []Element_Linear_StretchingOverride,
 }
 
 Element_Scroll :: struct {
@@ -337,6 +354,7 @@ Element_Scroll :: struct {
     scroll : [2]bool,
 
     // TODO: scrollbars on both sides? idk
+    // TODO: should this just be a single boolean, or is the configurability here a good thing?
     scrollbar : [2]bool,
 
     // NOTE:
@@ -344,6 +362,10 @@ Element_Scroll :: struct {
     // false -> just changes the offset
     targetFocus : bool,
 
+
+
+
+    // NOTE: RUNTIME THINGS
     offset : Pos,
     remaining : Pos,
 }
@@ -371,19 +393,17 @@ Element_Label_default :: Element_Label{
             cc_fill(ctx.commandBuffer, rect)
         }
 
-        name := element_getFullKindName(self)
-        defer delete(name)
-
         drawTextBetter(ctx, self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
         // TODO: this is still kinda scuffed and doesnt take the price into account (and furthermore is heavily biased into larger height, which is good actually, but not always)
-
+        
         self := cast(^Element_Label)self
 
-        name := element_getFullKindName(self)
-        defer delete(name)
+        if rect, truncated := drawTextBetter(nil, self.text, { 0, 0, constraints.preferredSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false); !truncated {
+            return rect.zw
+        }
 
         rect, truncated := drawTextBetter(nil, self.text, { 0, 0, constraints.maxSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         if truncated { return constraints.maxSize }
@@ -672,7 +692,24 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
     priorities := make([]u64, len(self.children))
     defer delete(priorities)
 
-    for s, i in self.stretching {
+    stretchings := make([]Stretching, len(self.children))
+    defer delete(stretchings)
+
+    sl: for _, i in self.children {
+        s := self.stretching
+        if self.stretchingArray != nil && i < len(self.stretchingArray) {
+            s = self.stretchingArray[i].? or_else s
+        }
+
+        if self.stretchingOverrides != nil {
+            for o in self.stretchingOverrides {
+                if o.index == i {
+                    s = o.s
+                }
+            }
+        }
+
+        stretchings[i] = s
         priorities[i] = calculatePriority(s)
     }
 
@@ -710,7 +747,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
             maxSize := Pos{ singleLimit, linearLimits[i] }
 
             preferredSize := Pos{ singlePreferred, math.min(linearLimits[i], linearLimit / cast(i16)len(self.children)) }
-            if self.stretching[i].fill == .MinimalPossible { preferredSize.y = 1 }
+            if stretchings[i].fill == .MinimalPossible { preferredSize.y = 1 }
 
             wbhRatio : f64 = 1
 
@@ -725,10 +762,8 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         delta := mflip(rect.zw, h).y - linearTotal
 
+        // NOTE: unintentionally this made stretching not work within a scroll, which is good
         if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0 }
-
-        log.debugf("ITERATION %v", iteration)
-        log.debugf("DELTA: %v", delta)
 
         limit := delta < 0 ? caps : nil
 
@@ -736,16 +771,9 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         divideBetween(cast(u64)math.abs(delta), priorities, transmute([]u64)deltas, maxValues = limit)
 
-        log.debugf("LIMITS IT A %v", linearLimits)
-
-        log.debugf("SIZES %v", sizes)
-        log.debugf("DELTAS %v", deltas)
-
         for d, i in deltas {
             linearLimits[i] = sizes[i] + (sign_i16(delta) * cast(i16)d)
         }
-
-        log.debugf("LIMITS IT B %v", linearLimits)
     }
 
     linearTotal = math.sum(linearLimits)
@@ -754,8 +782,6 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         size = mflip(Pos{ singleMax, linearTotal }, h)
         return
     }
-
-    log.debugf("LIMITS %v", linearLimits)
 
     offset := rect.xy
     for c, i in self.children {

@@ -424,190 +424,91 @@ RenderingContext :: struct {
 }
 
 run :: proc () -> bool {
-    // when ODIN_DEBUG
-    logFile, _ := os_old.open("./log.txt", os_old.O_CREATE | os_old.O_TRUNC | os_old.O_RDWR)
-    context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Short_File_Path, .Line })
+    // when ODIN_DEBUG {
+        logFile, _ := os_old.open("./log.txt", os_old.O_CREATE | os_old.O_TRUNC | os_old.O_RDWR)
+        context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Short_File_Path, .Line })
+    // }
 
-    p20table_magic := Element_Label_default
-    p20table_magic.text = "Magic:"
-
-    p20table_type := Element_Label_default
-    p20table_type.text = "Type:"
-
-    p20table_magicValue := Element_Label_default
-    p20table_magicValue.text = "7f 45 4c 46"
-
-    p20table_typeValue := Element_Label_default
-    p20table_typeValue.text = "Shared Object"
 
     p20table := Element_Table_default
-    p20table.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
+    p20table.children = { label("Magic:"), label("Type:"), label("7f 45 4c 46"), label("Shared Object") }
     p20table.stretch = { true, false }
     p20table.configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } }
     p20table.stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 5, fill = .Expand } }
     p20table.stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } }
 
-    p20linear := Element_Linear_default
-    p20linear.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
-    p20linear.stretch = { false, true }
-    p20linear.isHorizontal = false
-    p20linear.stretching = {
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-    }
 
-    p20text00 := Element_Label_default
-    p20text00.text = "[1:1] In the beginning when God created the heavens and the earth,"
+    // p20linear := Element_Linear_default
+    // p20linear.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
+    // p20linear.stretch = { false, true }
+    // p20linear.isHorizontal = false
+    // p20linear.stretching = Stretching{ priority = 1, fill = .MinimalNecessary }
 
-    p20text01 := Element_Label_default
-    p20text01.text = "[1:2] the earth was a formless void and darkness covered the face of the deep, while a wind from God swept over the face of the waters."
 
-    p20text02 := Element_Label_default
-    p20text02.text = "[1:3] Then God said, \"Let there be light\"; and there was light."
 
-    p20text03 := Element_Label_default
-    p20text03.text = "[1:4] And God saw that the light was good; and God separated the light from the darkness."
+    p20scroll := scroll({ false, true }, { false, true }, true,
+        linear({ priority = 1, fill = .MinimalPossible }, {
+            label("[1:1] In the beginning when God created the heavens and the earth,"),
+            label("[1:2] the earth was a formless void and darkness covered the face of the deep, while a wind from God swept over the face of the waters."),
+            label("[1:3] Then God said, \"Let there be light\"; and there was light."),
+            label("[1:4] And God saw that the light was good; and God separated the light from the darkness."),
+            label("[1:5] God called the light Day, and the darkness he called Night. And there was evening and there was morning, the first day."),
+            label("[1:6] And God said, \"Let there be a dome in the midst of the waters, and let it separate the waters from the waters.\""),
+            label("[1:7] So God made the dome and separated the waters that were under the dome from the waters that were above the dome. And it was so."),
+            label("[1:8] God called the dome Sky. And there was evening and there was morning, the second day."),
+            label("[1:9] And God said, \"Let the waters under the sky be gathered together into one place, and let the dry land appear.\" And it was so."),
+            label("[1:10] God called the dry land Earth, and the waters that were gathered together he called Seas. And God saw that it was good."),
+            label("[1:11] Then God said, \"Let the earth put forth vegetation: plants yielding seed, and fruit trees of every kind on earth that bear fruit with the seed in it.\" And it was so."),
+            label("[1:12] The earth brought forth vegetation: plants yielding seed of every kind, and trees of every kind bearing fruit with the seed in it. And God saw that it was good."),
+            label("[1:13] And there was evening and there was morning, the third day."),
+            label("[1:14] And God said, \"Let there be lights in the dome of the sky to separate the day from the night; and let them be for signs and for seasons and for days and years,"),
+            label("[1:15] and let them be lights in the dome of the sky to give light upon the earth.\" And it was so."),
+            label("[1:16] God made the two great lights - the greater light to rule the day and the lesser light to rule the night - and the stars."),
+            label("[1:17] God set them in the dome of the sky to give light upon the earth,"),
+            label("[1:18] to rule over the day and over the night, and to separate the light from the darkness. And God saw that it was good."),
+            label("[1:19] And there was evening and there was morning, the fourth day."),
+            label("[1:20] And God said, \"Let the waters bring forth swarms of living creatures, and let birds fly above the earth across the dome of the sky.\""),
+            label("[1:21] So God created the great sea monsters and every living creature that moves, of every kind, with which the waters swarm, and every winged bird of every kind. And God saw that it was good."),
+            label("[1:22] God blessed them, saying, \"Be fruitful and multiply and fill the waters in the seas, and let birds multiply on the earth.\""),
+            label("[1:23] And there was evening and there was morning, the fifth day."),
+            label("[1:24] And God said, \"Let the earth bring forth living creatures of every kind: cattle and creeping things and wild animals of the earth of every kind.\" And it was so."),
+            label("[1:25] God made the wild animals of the earth of every kind, and the cattle of every kind, and everything that creeps upon the ground of every kind. And God saw that it was good."),
+            label("[1:26] Then God said, \"Let us make humankind in our image, according to our likeness; and let them have dominion over the fish of the sea, and over the birds of the air, and over the cattle, and over all the wild animals of the earth, and over every creeping thing that creeps upon the earth.\""),
+            label("[1:27] So God created humankind in his image, in the image of God he created them; male and female he created them."),
+            label("[1:28] God blessed them, and God said to them, \"Be fruitful and multiply, and fill the earth and subdue it; and have dominion over the fish of the sea and over the birds of the air and over every living thing that moves upon the earth.\""),
+            label("[1:29] God said, \"See, I have given you every plant yielding seed that is upon the face of all the earth, and every tree with seed in its fruit; you shall have them for food."),
+            label("[1:30] And to every beast of the earth, and to every bird of the air, and to everything that creeps on the earth, everything that has the breath of life, I have given every green plant for food.\" And it was so."),
+            label("[1:31] God saw everything that he had made, and indeed, it was very good. And there was evening and there was morning, the sixth day. "),
+        })
+    )
 
-    p20text04 := Element_Label_default
-    p20text04.text = "[1:5] God called the light Day, and the darkness he called Night. And there was evening and there was morning, the first day."
 
-    p20text05 := Element_Label_default
-    p20text05.text = "[1:6] And God said, \"Let there be a dome in the midst of the waters, and let it separate the waters from the waters.\""
 
-    p20text06 := Element_Label_default
-    p20text06.text = "[1:7] So God made the dome and separated the waters that were under the dome from the waters that were above the dome. And it was so."
+    // p20lineart := Element_Linear_default
+    // p20lineart.children = {
+    //     &p20text00, &p20text01, &p20text02, &p20text03, &p20text04,
+    //     &p20text05, &p20text06, &p20text07, &p20text08, &p20text09,
+    //     &p20text10, &p20text11, &p20text12, &p20text13, &p20text14,
+    //     &p20text15, &p20text16, &p20text17, &p20text18, &p20text19,
+    //     &p20text20, &p20text21, &p20text22, &p20text23, &p20text24,
+    //     &p20text25, &p20text26, &p20text27, &p20text28, &p20text29,
+    //     &p20text30,
+    // }
+    // p20lineart.stretch = { false, false }
+    // p20lineart.isHorizontal = false
+    // // TODO: okay this is dumb this has to be made more convenient (for tables as well i guess)
+    // p20lineart.stretching = Stretching{ priority = 1, fill = .MinimalNecessary }
 
-    p20text07 := Element_Label_default
-    p20text07.text = "[1:8] God called the dome Sky. And there was evening and there was morning, the second day."
-
-    p20text08 := Element_Label_default
-    p20text08.text = "[1:9] And God said, \"Let the waters under the sky be gathered together into one place, and let the dry land appear.\" And it was so."
-
-    p20text09 := Element_Label_default
-    p20text09.text = "[1:10] God called the dry land Earth, and the waters that were gathered together he called Seas. And God saw that it was good."
-
-    p20text10 := Element_Label_default
-    p20text10.text = "[1:11] Then God said, \"Let the earth put forth vegetation: plants yielding seed, and fruit trees of every kind on earth that bear fruit with the seed in it.\" And it was so."
-
-    p20text11 := Element_Label_default
-    p20text11.text = "[1:12] The earth brought forth vegetation: plants yielding seed of every kind, and trees of every kind bearing fruit with the seed in it. And God saw that it was good."
-
-    p20text12 := Element_Label_default
-    p20text12.text = "[1:13] And there was evening and there was morning, the third day."
-
-    p20text13 := Element_Label_default
-    p20text13.text = "[1:14] And God said, \"Let there be lights in the dome of the sky to separate the day from the night; and let them be for signs and for seasons and for days and years,"
-
-    p20text14 := Element_Label_default
-    p20text14.text = "[1:15] and let them be lights in the dome of the sky to give light upon the earth.\" And it was so."
-
-    p20text15 := Element_Label_default
-    p20text15.text = "[1:16] God made the two great lights - the greater light to rule the day and the lesser light to rule the night - and the stars."
-
-    p20text16 := Element_Label_default
-    p20text16.text = "[1:17] God set them in the dome of the sky to give light upon the earth,"
-
-    p20text17 := Element_Label_default
-    p20text17.text = "[1:18] to rule over the day and over the night, and to separate the light from the darkness. And God saw that it was good."
-
-    p20text18 := Element_Label_default
-    p20text18.text = "[1:19] And there was evening and there was morning, the fourth day."
-
-    p20text19 := Element_Label_default
-    p20text19.text = "[1:20] And God said, \"Let the waters bring forth swarms of living creatures, and let birds fly above the earth across the dome of the sky.\""
-
-    p20text20 := Element_Label_default
-    p20text20.text = "[1:21] So God created the great sea monsters and every living creature that moves, of every kind, with which the waters swarm, and every winged bird of every kind. And God saw that it was good."
-
-    p20text21 := Element_Label_default
-    p20text21.text = "[1:22] God blessed them, saying, \"Be fruitful and multiply and fill the waters in the seas, and let birds multiply on the earth.\""
-
-    p20text22 := Element_Label_default
-    p20text22.text = "[1:23] And there was evening and there was morning, the fifth day."
-
-    p20text23 := Element_Label_default
-    p20text23.text = "[1:24] And God said, \"Let the earth bring forth living creatures of every kind: cattle and creeping things and wild animals of the earth of every kind.\" And it was so."
-
-    p20text24 := Element_Label_default
-    p20text24.text = "[1:25] God made the wild animals of the earth of every kind, and the cattle of every kind, and everything that creeps upon the ground of every kind. And God saw that it was good."
-
-    p20text25 := Element_Label_default
-    p20text25.text = "[1:26] Then God said, \"Let us make humankind in our image, according to our likeness; and let them have dominion over the fish of the sea, and over the birds of the air, and over the cattle, and over all the wild animals of the earth, and over every creeping thing that creeps upon the earth.\""
-
-    p20text26 := Element_Label_default
-    p20text26.text = "[1:27] So God created humankind in his image, in the image of God he created them; male and female he created them."
-
-    p20text27 := Element_Label_default
-    p20text27.text = "[1:28] God blessed them, and God said to them, \"Be fruitful and multiply, and fill the earth and subdue it; and have dominion over the fish of the sea and over the birds of the air and over every living thing that moves upon the earth.\""
-
-    p20text28 := Element_Label_default
-    p20text28.text = "[1:29] God said, \"See, I have given you every plant yielding seed that is upon the face of all the earth, and every tree with seed in its fruit; you shall have them for food."
-
-    p20text29 := Element_Label_default
-    p20text29.text = "[1:30] And to every beast of the earth, and to every bird of the air, and to everything that creeps on the earth, everything that has the breath of life, I have given every green plant for food.\" And it was so."
-
-    p20text30 := Element_Label_default
-    p20text30.text = "[1:31] God saw everything that he had made, and indeed, it was very good. And there was evening and there was morning, the sixth day. "
-
-    p20lineart := Element_Linear_default
-    p20lineart.children = {
-        &p20text00, &p20text01, &p20text02, &p20text03, &p20text04,
-        &p20text05, &p20text06, &p20text07, &p20text08, &p20text09,
-        &p20text10, &p20text11, &p20text12, &p20text13, &p20text14,
-        &p20text15, &p20text16, &p20text17, &p20text18, &p20text19,
-        &p20text20, &p20text21, &p20text22, &p20text23, &p20text24,
-        &p20text25, &p20text26, &p20text27, &p20text28, &p20text29,
-        &p20text30,
-    }
-    p20lineart.stretch = { false, false }
-    p20lineart.isHorizontal = false
-    // TODO: okay this is dumb this has to be made more convenient (for tables as well i guess)
-    p20lineart.stretching = {
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-        Stretching{ priority = 1, fill = .MinimalNecessary },
-    }
-
-    p20scroll := Element_Scroll_default
-    p20scroll.children = { &p20lineart }
-    p20scroll.scroll = { false, true }
-    p20scroll.scrollbar = { false, true }
-    p20scroll.targetFocus = true
+    // p20scroll := Element_Scroll_default
+    // p20scroll.children = { a }
+    // p20scroll.scroll = { false, true }
+    // p20scroll.scrollbar = { false, true }
+    // p20scroll.targetFocus = true
     
     p20 := Element{
         kind = "P20",
 
-        children = { &p20scroll },
+        children = { p20scroll },
 
         render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
             rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
