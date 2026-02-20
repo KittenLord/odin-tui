@@ -624,6 +624,7 @@ run :: proc () -> bool {
 
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     root.children[0].stretch.x = true
+    (cast(^Element_Linear)root.children[0]).gap = .None
 
 
 

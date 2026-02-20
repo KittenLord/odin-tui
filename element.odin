@@ -336,6 +336,8 @@ Element_Linear :: struct {
 
     isHorizontal : bool,
 
+    gap : Maybe(BoxType),
+
     // NOTE: im not sure which is more useful
 
     // The priority is the following:
@@ -556,11 +558,20 @@ Element_Linear_default :: Element_Linear{
         ss := (m * Pos_from_Nav(dir))
         s := ss.x + ss.y
 
-        if s == 0 { return }
+        if s == 0 {
+            navigate_default(self, dir)
+            return
+        }
 
         // TODO: optional wrapping?
-        if i == 0 && s < 0 { return }
-        if i == len(self.children) - 1 && s > 0 { return }
+        if i == 0 && s < 0 {
+            navigate_default(self, dir)
+            return
+        }
+        if i == len(self.children) - 1 && s > 0 {
+            navigate_default(self, dir)
+            return
+        }
 
         element_unfocus(pfocus)
         element_focus(self.children[i + int(s)])
@@ -786,6 +797,13 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
     singleMax : i16 = 0
     singlePreferred := mflip(preferred, h).x
 
+    rect := rect
+    oldRect := rect
+
+    border, useGap := self.gap.?
+    g := mflip({ 0, useGap ? i16(len(self.children) - 1) : 0 }, h)
+    rect -= { 0, 0, g.x, g.y }
+
     singleLimit := mflip(rect.zw, h).x
     linearLimit := mflip(rect.zw, h).y
     linearLimits := make([]i16, len(self.children))
@@ -851,6 +869,13 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         element_render(c, ctx, { offset.x, offset.y, size.x, size.y })
 
         offset += mflip(Pos{ 0, linearLimits[i] }, h)
+
+        if useGap {
+            gsize := mflip(Pos{ singleLimit, 1 }, h)
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, border)
+
+            offset += mflip(Pos{ 0, 1 }, h)
+        }
     }
 
     return
