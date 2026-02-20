@@ -11,7 +11,7 @@ label :: proc (text : string, allocator := context.allocator) -> ^Element {
     return e
 }
 
-linear :: proc (s : Stretching, isHorizontal : false, children : []^Element, allocator := context.allocator) -> ^Element {
+linear :: proc (s : Stretching, isHorizontal : bool, children : []^Element, allocator := context.allocator) -> ^Element {
     e := new(Element_Linear, allocator)
     e^ = Element_Linear_default
     e.children = slice.clone(children, allocator)

@@ -447,7 +447,7 @@ run :: proc () -> bool {
 
 
     p20scroll := scroll({ false, true }, { false, true }, true,
-        linear({ priority = 1, fill = .MinimalPossible }, {
+        linear({ priority = 1, fill = .MinimalPossible }, false, {
             label("[1:1] In the beginning when God created the heavens and the earth,"),
             label("[1:2] the earth was a formless void and darkness covered the face of the deep, while a wind from God swept over the face of the waters."),
             label("[1:3] Then God said, \"Let there be light\"; and there was light."),
