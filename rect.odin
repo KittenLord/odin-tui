@@ -45,6 +45,14 @@ rect_fix :: proc (r : Rect) -> (s : Rect) {
     return
 }
 
+// TODO: we might want a separate type for Size
+pos_fix :: proc (p : Pos) -> (s : Pos) {
+    s = p
+    if s.x < 0 do s.x = 0
+    if s.y < 0 do s.y = 0
+    return
+}
+
 is_rect_within_rect :: proc (inner, outer : Rect) -> bool {
     if inner.x < outer.x || inner.y < outer.y { return false }
 

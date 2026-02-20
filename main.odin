@@ -150,6 +150,13 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
 drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, ll_list : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
     ll_list := ll_list
 
+    if rect.z == 0 || rect.w == 0 {
+        // TODO: text is all whitespace?
+        return { 0, 0, 0, 0 }, (len(text) != 0)
+    }
+
+    log.debugf("%v", rect)
+
     if rendering {
         ll_list = make([]i16, rect.w)
         drawTextBetter(ctx, text, rect, align, wrap, false, ll_list)
@@ -571,7 +578,7 @@ run :: proc () -> bool {
         navigate = navigate_default,
     }
 
-    root := Element{
+    _root := Element{
         kind = "Root",
 
         children = { &p20, &p30, &p50 },
@@ -604,6 +611,19 @@ run :: proc () -> bool {
         },
         navigate = navigate_default,
     }
+
+
+    root :=
+        box(.None, {}, {},
+            linear({ priority = 1, fill = .MinimalPossible }, true, {
+                p20scroll,
+                label("Test"),
+                label("Test 2")
+            })
+        )
+
+    // TODO: are there even cases where we do NOT watch stretching (when rendering)?
+    root.children[0].stretch.x = true
 
 
 
@@ -647,7 +667,7 @@ run :: proc () -> bool {
         time.stopwatch_reset(&sw)
         time.stopwatch_start(&sw)
 
-        element_input(&root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
+        element_input(root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
 
 
 
@@ -667,8 +687,8 @@ run :: proc () -> bool {
             commandBuffer = &cb,
         }
 
-        element_assignParentRecurse(&root)
-        element_render(&root, &ctx, ctx.screenRect)
+        element_assignParentRecurse(root)
+        element_render(root, &ctx, ctx.screenRect)
 
         resolveBoxBuffer(box, screen)
         cc_bufferPresent(&cb, screen)

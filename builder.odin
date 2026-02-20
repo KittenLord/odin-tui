@@ -33,3 +33,13 @@ scroll :: proc (scroll : [2]bool, scrollbar : [2]bool, targetFocus : bool, child
 
     return e
 }
+
+box :: proc (border : BoxType, margin : Rect, padding : Rect, child : ^Element, allocator := context.allocator) -> ^Element {
+    e := new(Element_Box, allocator)
+    e^ = Element_Box_default
+    e.children = slice.clone([]^Element{ child }, allocator)
+
+    e.border = border
+
+    return e
+}

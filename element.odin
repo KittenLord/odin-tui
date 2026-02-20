@@ -370,6 +370,15 @@ Element_Scroll :: struct {
     remaining : Pos,
 }
 
+Element_Box :: struct {
+    using base : Element,
+
+    margin : Rect,
+    padding : Rect,
+
+    border : BoxType,
+}
+
 
 Element_default :: Element{
     kind = "Element",
@@ -379,6 +388,56 @@ Element_default :: Element{
     input = input_default,
     inputFocus = inputFocus_default,
     focus = focus_default,
+    navigate = navigate_default,
+}
+
+Element_Box_default :: Element_Box{
+    kind = "Box",
+
+    render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+        self := cast(^Element_Box)self
+
+        rect_m := rect_fix(rect + { self.margin.w, self.margin.x, -(self.margin.y + self.margin.w), -(self.margin.z + self.margin.x) })
+
+        if self.border != .None {
+            drawBox(ctx.bufferBoxes, rect_m, self.border)
+            rect_m = rect_fix(rect + { 1, 1, -2, -2 })
+        }
+
+        rect_p := rect_fix(rect_m + { self.padding.w, self.padding.x, -(self.padding.y + self.padding.w), -(self.padding.z + self.padding.x) })
+
+        if len(self.children) > 0 {
+            element_render(self.children[0], ctx, rect_p)
+        }
+    },
+
+    negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
+        self := cast(^Element_Box)self
+
+        border : i16 = self.border != .None ? 1 : 0
+        delta := Pos{
+            self.margin.w + self.margin.y + self.padding.w + self.padding.y + border,
+            self.margin.x + self.margin.z + self.padding.x + self.padding.z + border,
+        }
+
+        if len(self.children) > 0 {
+            return element_negotiate(self.children[0], Constraints{ maxSize = pos_fix(constraints.maxSize - delta), preferredSize = pos_fix(constraints.preferredSize - delta), widthByHeightPriceRatio = 1 }) + delta
+        }
+        else {
+            return constraints.preferredSize
+        }
+    },
+
+    input = input_default,
+    inputFocus = inputFocus_default,
+
+    focus = proc (self : ^Element) {
+        if len(self.children) > 0 {
+            element_unfocus(self)
+            element_focus(self.children[0])
+        }
+    },
+
     navigate = navigate_default,
 }
 
@@ -550,6 +609,7 @@ Element_Scroll_default :: Element_Scroll{
                 screenRect = srect,
                 commandBuffer = &cb,
             }
+
 
             element_render(c, &sctx, sctx.screenRect)
 
