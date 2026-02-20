@@ -305,7 +305,6 @@ cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
     }
 }
 
-// TODO: styles
 cc_bufferPresentCool :: proc (cb : ^CommandBuffer, buffer : Buffer(CellData), dstOffset : Pos, selection : Rect) {
     consecutive := true
     c_goto(cb, dstOffset)

@@ -120,6 +120,7 @@ drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
     }
 }
 
+// TODO: okay this doesnt work that well actually
 resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
     for x in 0..<buffer.rect.z {
         for y in 0..<buffer.rect.w {
@@ -395,35 +396,6 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
 
 
-// TODO: THIS IS INCORRECT, JUST TEMPORARY
-buyIncrement :: proc (base : Pos, old : Pos, max : Pos, widthByHeightPriceRatio : f64) -> (new : Pos) {
-    new = old
-    if base + old == max { return }
-
-    heightByHeightPriceRatio : f64 = 1
-
-    costH := cast(f64)old.y * heightByHeightPriceRatio
-    costW := cast(f64)old.x * widthByHeightPriceRatio
-
-    ncostH := cast(f64)(old.y + 1) * heightByHeightPriceRatio
-    ncostW := cast(f64)(old.x + 1) * widthByHeightPriceRatio
-
-    if base.y + old.y + 1 > max.y { ncostH = 99999999999 }
-    if base.x + old.x + 1 > max.x { ncostW = 99999999999 }
-
-    if (ncostH + costW) < (costH + ncostW) {
-        new.y += 1
-    }
-    else {
-        new.x += 1
-    }
-
-    return
-}
-
-
-
-
 RenderingContext :: struct {
     bufferBoxes : Buffer(BoxType),
     screenRect : Rect,
@@ -503,7 +475,6 @@ run :: proc () -> bool {
     // }
     // p20lineart.stretch = { false, false }
     // p20lineart.isHorizontal = false
-    // // TODO: okay this is dumb this has to be made more convenient (for tables as well i guess)
     // p20lineart.stretching = Stretching{ priority = 1, fill = .MinimalNecessary }
 
     // p20scroll := Element_Scroll_default
@@ -614,7 +585,7 @@ run :: proc () -> bool {
 
 
     root :=
-        box(.None, {}, {},
+        box(.Single, {}, {},
             linear({ priority = 1, fill = .MinimalPossible }, true, {
                 p20scroll,
                 label("Test"),
@@ -624,7 +595,7 @@ run :: proc () -> bool {
 
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     root.children[0].stretch.x = true
-    (cast(^Element_Linear)root.children[0]).gap = .None
+    (cast(^Element_Linear)root.children[0]).gap = .Double
 
 
 
