@@ -200,6 +200,20 @@ element_findChildWithFocus :: proc (e : ^Element, focus : ^Element = nil) -> (ch
     return
 }
 
+element_retrieve :: proc ($ty : typeid, root : ^Element, path : []int, kind : string = "") -> (e : ^ty, ok : bool = false) {
+    root := root
+    for next in path {
+        if next >= len(root.children) { return }
+        root = root.children[next]
+    }
+
+    if kind != "" && root.kind != kind { return }
+
+    e = cast(^ty)root
+    ok = true
+    return
+}
+
 
 MAX_SIZE : Pos : { 1000, 1000 }
 
@@ -217,9 +231,26 @@ Filling :: enum {
 }
 
 Stretching :: struct {
-    priority : int,
     fill : Filling,
+    priority : int,
 }
+
+LinearStretchingOverride :: struct {
+    index : int,
+    stretching : Stretching,
+}
+
+// The priority is the following:
+// If stretching override is available, use it
+// If not, but array element is available, use it
+// If not, use stretching
+LinearStretching :: struct {
+    single : Stretching,
+    array : []Maybe(Stretching),
+    overrides : []LinearStretchingOverride,
+}
+
+
 
 Wrapping :: enum {
     Wrapping,       // word gets cut at the end of the line, gets continued immediately on the next one
@@ -316,8 +347,11 @@ Element_Table :: struct {
 
     configuration : Buffer(int),
 
-    stretchingCols : []Stretching,
-    stretchingRows : []Stretching,
+    // NOTE: gap.x - between columns, gap.y - between rows
+    gap : [2]Maybe(BoxType),
+
+    stretchingCols : LinearStretching,
+    stretchingRows : LinearStretching,
 }
 
 Element_Label :: struct {
@@ -326,28 +360,13 @@ Element_Label :: struct {
     text : string,
 }
 
-Element_Linear_StretchingOverride :: struct {
-    index : int,
-    s : Stretching,
-}
-
+// TODO: we probably need to remember the last child that was focused and return to it instead of the first one
 Element_Linear :: struct {
     using base : Element,
 
     isHorizontal : bool,
-
     gap : Maybe(BoxType),
-
-    // NOTE: im not sure which is more useful
-
-    // The priority is the following:
-    // If stretching override is available, use it
-    // If not, but array element is available, use it
-    // If not, use stretching
-
-    stretching : Stretching,
-    stretchingArray : []Maybe(Stretching),
-    stretchingOverrides : []Element_Linear_StretchingOverride,
+    stretching : LinearStretching,
 }
 
 Element_Scroll :: struct {
@@ -747,6 +766,24 @@ Element_Scroll_default :: Element_Scroll{
     navigate = navigate_default,
 }
 
+linearStretching_get :: proc (l : LinearStretching, i : int) -> (s : Stretching) {
+    s = l.single
+
+    if l.array != nil && i < len(l.array) {
+        s = l.array[i].? or_else s
+    }
+
+    if l.overrides != nil {
+        for o in l.overrides {
+            if o.index == i {
+                s = o.stretching
+            }
+        }
+    }
+
+    return
+}
+
 
 Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect, preferred : Pos, rendering : bool) -> (size : Pos) {
     self := cast(^Element_Linear)self
@@ -767,18 +804,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
     defer delete(stretchings)
 
     sl: for _, i in self.children {
-        s := self.stretching
-        if self.stretchingArray != nil && i < len(self.stretchingArray) {
-            s = self.stretchingArray[i].? or_else s
-        }
-
-        if self.stretchingOverrides != nil {
-            for o in self.stretchingOverrides {
-                if o.index == i {
-                    s = o.s
-                }
-            }
-        }
+        s := linearStretching_get(self.stretching, i)
 
         stretchings[i] = s
         priorities[i] = calculatePriority(s)
@@ -801,7 +827,8 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
     oldRect := rect
 
     border, useGap := self.gap.?
-    g := mflip({ 0, useGap ? i16(len(self.children) - 1) : 0 }, h)
+    lg := i16(len(self.children) - 1)
+    g := mflip({ 0, useGap ? lg : 0 }, h)
     rect -= { 0, 0, g.x, g.y }
 
     singleLimit := mflip(rect.zw, h).x
@@ -857,7 +884,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
     linearTotal = math.sum(linearLimits)
 
     if !rendering {
-        size = mflip(Pos{ singleMax, linearTotal }, h)
+        size = mflip(Pos{ singleMax, linearTotal + lg }, h)
         return
     }
 
@@ -870,7 +897,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         offset += mflip(Pos{ 0, linearLimits[i] }, h)
 
-        if useGap {
+        if useGap && i != len(self.children) - 1 {
             gsize := mflip(Pos{ singleLimit, 1 }, h)
             drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, border)
 
@@ -926,9 +953,13 @@ Element_Table_default :: Element_Table{
 
                     element_unfocus(pfocus)
                     element_focus(e)
+
+                    return
                 }
             }
         }
+
+        navigate_default(self, dir)
     },
 }
 
@@ -976,15 +1007,39 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
     defer delete(priorityCols)
     defer delete(priorityRows)
 
-    for s, i in self.stretchingCols {
+
+    stretchingCols := make([]Stretching, self.configuration.rect.z)
+    defer delete(stretchingCols)
+    stretchingRows := make([]Stretching, self.configuration.rect.w)
+    defer delete(stretchingRows)
+
+    for i in 0..<self.configuration.rect.z {
+        s := linearStretching_get(self.stretchingCols, cast(int)i)
+
+        stretchingCols[i] = s
         priorityCols[i] = calculatePriority(s)
     }
 
-    for s, i in self.stretchingRows {
-        priorityRows[i] = calculatePriority(s)
+    for i in 0..<self.configuration.rect.w {
+        s := linearStretching_get(self.stretchingRows, cast(int)i)
+
+        stretchingRows[i] = s
+        priorityCols[i] = calculatePriority(s)
     }
 
 
+    rect := rect
+    oldRect := rect
+
+    
+    gapX, useGapX := self.gap.x.?
+    gapY, useGapY := self.gap.y.?
+    gap := [2]BoxType{ gapX, gapY }
+    useGap := [2]bool{ useGapX, useGapY }
+
+    gapSize := [2]i16{ useGap.x ? (self.configuration.rect.z - 1) : 0, useGap.y ? (self.configuration.rect.w - 1) : 0 }
+
+    rect -= { 0, 0, gapSize.x, gapSize.y }
 
 
 
@@ -1009,8 +1064,8 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
                 maxSize := Pos{ limCols[x], limRows[y] }
 
                 preferredSize := Pos{ math.min(maxSize.x, rect.z / self.configuration.rect.z), math.min(maxSize.y, rect.w / self.configuration.rect.w) }
-                if self.stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
-                if self.stretchingRows[y].fill == .MinimalPossible { preferredSize.y = 1 }
+                if stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
+                if stretchingRows[y].fill == .MinimalPossible { preferredSize.y = 1 }
 
                 // TODO: still not sure about this
                 wbhRatio := (f64(rect.z)) / (f64(rect.w))
@@ -1026,10 +1081,10 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
         // NOTE: unless this is the last iteration, elements should get as much space as possible
         dc := rect.z - totalCols
-        if iteration == lastIteration && dc > 0 && !self.stretch.x { dc = 0 }
+        if iteration == lastIteration && dc > 0 && (!render || !self.stretch.x) { dc = 0 }
 
         dr := rect.w - totalRows
-        if iteration == lastIteration && dr > 0 && !self.stretch.y { dr = 0 }
+        if iteration == lastIteration && dr > 0 && (!render || !self.stretch.y) { dr = 0 }
 
         lc := dc < 0 ? capCols : nil
         lr := dr < 0 ? capRows : nil
@@ -1052,7 +1107,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
     totalCols := math.sum(limCols)
     totalRows := math.sum(limRows)
 
-    size = { totalCols, totalRows }
+    size = { totalCols, totalRows } + gapSize
 
     if !render { return }
 
@@ -1069,10 +1124,23 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
             element_render(e, ctx, { offset.x, offset.y, msize.x, msize.y })
 
             offset.y += msize.y
+
+            if useGap.y && y < self.configuration.rect.w - 1 {
+                if x == 0 {
+                    drawBlock(ctx.bufferBoxes, { offset.x, offset.y, oldRect.z, 1 }, gap.y)
+                }
+
+                offset.y += 1
+            }
         }
 
         offset.y = rect.y
         offset.x += (limCols[x])
+
+        if useGap.x && x < self.configuration.rect.z - 1 {
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, gap.x)
+            offset.x += 1
+        }
     }
 
     return

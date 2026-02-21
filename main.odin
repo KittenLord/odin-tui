@@ -53,9 +53,9 @@ Buffer :: struct($Item : typeid) {
     data : []Item,
 }
 
-buffer_create :: proc (r : Rect, $ty : typeid) -> (buffer : Buffer(ty), ok : bool = false) {
+buffer_create :: proc (r : Rect, $ty : typeid, allocator := context.allocator) -> (buffer : Buffer(ty), ok : bool = false) {
     size := r.z * r.w
-    buffer = Buffer(ty){ rect = r, data = make([]ty, size) }
+    buffer = Buffer(ty){ rect = r, data = make([]ty, size, allocator) }
     ok = true
     return
 }
@@ -155,8 +155,6 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
         // TODO: text is all whitespace?
         return { 0, 0, 0, 0 }, (len(text) != 0)
     }
-
-    log.debugf("%v", rect)
 
     if rendering {
         ll_list = make([]i16, rect.w)
@@ -409,21 +407,6 @@ run :: proc () -> bool {
     // }
 
 
-    p20table := Element_Table_default
-    p20table.children = { label("Magic:"), label("Type:"), label("7f 45 4c 46"), label("Shared Object") }
-    p20table.stretch = { true, false }
-    p20table.configuration = Buffer(int){ rect = { 0, 0, 2, 2 }, data = { 0, 2, 1, 3 } }
-    p20table.stretchingCols = { Stretching{ priority = 0, fill = .MinimalNecessary }, Stretching{ priority = 5, fill = .Expand } }
-    p20table.stretchingRows = { Stretching{ priority = 0, fill = .MinimalPossible }, Stretching{ priority = 0, fill = .MinimalPossible } }
-
-
-    // p20linear := Element_Linear_default
-    // p20linear.children = { &p20table_magic, &p20table_type, &p20table_magicValue, &p20table_typeValue }
-    // p20linear.stretch = { false, true }
-    // p20linear.isHorizontal = false
-    // p20linear.stretching = Stretching{ priority = 1, fill = .MinimalNecessary }
-
-
 
     p20scroll := scroll({ false, true }, { false, true }, true,
         linear({ priority = 1, fill = .MinimalPossible }, false, {
@@ -462,132 +445,119 @@ run :: proc () -> bool {
     )
 
 
-
-    // p20lineart := Element_Linear_default
-    // p20lineart.children = {
-    //     &p20text00, &p20text01, &p20text02, &p20text03, &p20text04,
-    //     &p20text05, &p20text06, &p20text07, &p20text08, &p20text09,
-    //     &p20text10, &p20text11, &p20text12, &p20text13, &p20text14,
-    //     &p20text15, &p20text16, &p20text17, &p20text18, &p20text19,
-    //     &p20text20, &p20text21, &p20text22, &p20text23, &p20text24,
-    //     &p20text25, &p20text26, &p20text27, &p20text28, &p20text29,
-    //     &p20text30,
-    // }
-    // p20lineart.stretch = { false, false }
-    // p20lineart.isHorizontal = false
-    // p20lineart.stretching = Stretching{ priority = 1, fill = .MinimalNecessary }
-
-    // p20scroll := Element_Scroll_default
-    // p20scroll.children = { a }
-    // p20scroll.scroll = { false, true }
-    // p20scroll.scrollbar = { false, true }
-    // p20scroll.targetFocus = true
+    p20table :=
+        table({ 2, 2 }, { stretching({ .Expand, 1 }), stretching({ .MinimalPossible, 1 }) }, {
+            label("Magic:"), label("7f 45 4c 46"),
+            label("Type:"),  label("Shared Object"), 
+        })
+    p20table.stretch.x = true
+    (cast(^Element_Table)p20table).gap = { .Single, .Double }
     
-    p20 := Element{
-        kind = "P20",
-
-        children = { p20scroll },
-
-        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-            rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
-
-            label := Element_Label_default
-            label.text = "ELF Header"
-            element_render(&label, ctx, rectTitle)
-
-            drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
-
-            element_render(self.children[0], ctx, rest)
-        },
-
-        input = input_default,
-        inputFocus = inputFocus_default,
-        focus = proc (self : ^Element) {
-            element_unfocus(self)
-            element_focus(self.children[0])
-        },
-        navigate = navigate_default,
-    }
-
-    p30 := Element{
-        kind = "P30",
-
-        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-            label := Element_Label_default
-            label.text = "Program header"
-            element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
-
-            drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-        },
-
-        input = input_default,
-        inputFocus = inputFocus_default,
-        focus = proc (self : ^Element) {
-            element_unfocus(self)
-            element_focus(self.children[0])
-        },
-        navigate = navigate_default,
-    }
-
-    p50 := Element{
-        kind = "P50",
-
-        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-            label := Element_Label_default
-            label.text = "Segment content"
-            element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
-
-            drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-        },
-
-        input = input_default,
-        inputFocus = inputFocus_default,
-        focus = proc (self : ^Element) {
-            element_unfocus(self)
-            element_focus(self.children[0])
-        },
-        navigate = navigate_default,
-    }
-
-    _root := Element{
-        kind = "Root",
-
-        children = { &p20, &p30, &p50 },
-        render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-            drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
-            content := rect_inner(ctx.screenRect)
-
-            width := content.z
-
-            c : []u64 = { 2, 3, 5 }
-            r : [3]u64
-            divideBetween(cast(u64)width, c, r[:], 1)
-
-            rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
-            rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
-
-            drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
-            drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
-
-            element_render(self.children[0], ctx, rectA)
-            element_render(self.children[1], ctx, rectB)
-            element_render(self.children[2], ctx, rectC)
-        },
-
-        input = input_default,
-        inputFocus = inputFocus_default,
-        focus = proc (self : ^Element) {
-            element_unfocus(self)
-            element_focus(self.children[0])
-        },
-        navigate = navigate_default,
-    }
+    // p20 := Element{
+    //     kind = "P20",
+    //
+    //     children = { p20scroll },
+    //
+    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    //         rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
+    //
+    //         label := Element_Label_default
+    //         label.text = "ELF Header"
+    //         element_render(&label, ctx, rectTitle)
+    //
+    //         drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
+    //
+    //         element_render(self.children[0], ctx, rest)
+    //     },
+    //
+    //     input = input_default,
+    //     inputFocus = inputFocus_default,
+    //     focus = proc (self : ^Element) {
+    //         element_unfocus(self)
+    //         element_focus(self.children[0])
+    //     },
+    //     navigate = navigate_default,
+    // }
+    //
+    // p30 := Element{
+    //     kind = "P30",
+    //
+    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    //         label := Element_Label_default
+    //         label.text = "Program header"
+    //         element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
+    //
+    //         drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+    //     },
+    //
+    //     input = input_default,
+    //     inputFocus = inputFocus_default,
+    //     focus = proc (self : ^Element) {
+    //         element_unfocus(self)
+    //         element_focus(self.children[0])
+    //     },
+    //     navigate = navigate_default,
+    // }
+    //
+    // p50 := Element{
+    //     kind = "P50",
+    //
+    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    //         label := Element_Label_default
+    //         label.text = "Segment content"
+    //         element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
+    //
+    //         drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
+    //     },
+    //
+    //     input = input_default,
+    //     inputFocus = inputFocus_default,
+    //     focus = proc (self : ^Element) {
+    //         element_unfocus(self)
+    //         element_focus(self.children[0])
+    //     },
+    //     navigate = navigate_default,
+    // }
+    //
+    // _root := Element{
+    //     kind = "Root",
+    //
+    //     children = { &p20, &p30, &p50 },
+    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    //         drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
+    //         content := rect_inner(ctx.screenRect)
+    //
+    //         width := content.z
+    //
+    //         c : []u64 = { 2, 3, 5 }
+    //         r : [3]u64
+    //         divideBetween(cast(u64)width, c, r[:], 1)
+    //
+    //         rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
+    //         rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
+    //
+    //         drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
+    //         drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
+    //
+    //         element_render(self.children[0], ctx, rectA)
+    //         element_render(self.children[1], ctx, rectB)
+    //         element_render(self.children[2], ctx, rectC)
+    //     },
+    //
+    //     input = input_default,
+    //     inputFocus = inputFocus_default,
+    //     focus = proc (self : ^Element) {
+    //         element_unfocus(self)
+    //         element_focus(self.children[0])
+    //     },
+    //     navigate = navigate_default,
+    // }
 
 
     root :=
         box(.Single, {}, {},
             linear({ priority = 1, fill = .MinimalPossible }, true, {
-                p20scroll,
+                p20table,
                 label("Test"),
                 label("Test 2")
             })
@@ -595,7 +565,8 @@ run :: proc () -> bool {
 
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     root.children[0].stretch.x = true
-    (cast(^Element_Linear)root.children[0]).gap = .Double
+    l, _ := element_retrieve(Element_Linear, root, { 0 })
+    l.gap = .Double
 
 
 
