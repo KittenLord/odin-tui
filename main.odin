@@ -148,6 +148,8 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
     }
 }
 
+// TODO: should we just render one line at a time and align it right away, so as to not
+// calculate alignments beforehand (and not rendering twice)?
 drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true, ll_list : []i16 = nil) -> (actualRect : Rect, truncated : bool) {
     ll_list := ll_list
 
@@ -392,6 +394,36 @@ divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : 
 
 
 
+TerminalState :: struct {
+    termios : px.termios,
+}
+
+interactiveEnable :: proc () -> (state : TerminalState, ok : bool = false) {
+    if px.tcgetattr(px.STDIN_FILENO, &state.termios) != .OK { return }
+
+    term := state.termios
+    term.c_lflag -= { .ECHO, .ICANON }
+
+    if px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &term) != .OK { return }
+
+    // Disable cursor
+    os.write_string(os.stdout, "\e[?25l")
+    // Enable alternative buffer
+    os.write_string(os.stdout, "\e[?1049h")
+
+    return
+}
+
+interactiveDisable :: proc (state : TerminalState) {
+    state := state
+    px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &state.termios)
+
+    // Disable alternative buffer
+    os.write_string(os.stdout, "\e[?1049l")
+    // Enable cursor
+    os.write_string(os.stdout, "\e[?25h")
+}
+
 
 
 RenderingContext :: struct {
@@ -496,23 +528,8 @@ run :: proc () -> bool {
 
 
 
-    term : px.termios
-    _ = px.tcgetattr(px.STDIN_FILENO, &term)
-    termRestore := term
-    defer px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &termRestore)
-
-    term.c_lflag -= { .ECHO, .ICANON }
-    px.tcsetattr(px.STDIN_FILENO, .TCSANOW, &term)
-
-
-
-    os.write_string(os.stdout, "\e[?25l")
-    os.write_string(os.stdout, "\e[?1049h")
-
-    defer {
-        os.write_string(os.stdout, "\e[?25h")
-        os.write_string(os.stdout, "\e[?1049l")
-    }
+    tstate, _ := interactiveEnable()
+    defer interactiveDisable(tstate)
 
 
 

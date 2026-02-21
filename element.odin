@@ -982,6 +982,10 @@ calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
     return m
 }
 
+// TODO: it seems that if element gets negotiated for, say, (11, 2),
+// is able to render in (13, 1), and is then stretched out to be
+// 13 in width, it will still be rendered with 2 height, even tho
+// it doesn't need it
 Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^RenderingContext, render : bool) -> (size : Pos) {
     self := cast(^Element_Table)self
 
