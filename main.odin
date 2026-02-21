@@ -409,7 +409,7 @@ run :: proc () -> bool {
 
 
     p20scroll := scroll({ false, true }, { false, true }, true,
-        linear({ priority = 1, fill = .MinimalPossible }, false, {
+        linear(.Vertical, {}, { { priority = 1, fill = .MinimalPossible }, {}, {} }, {
             label("[1:1] In the beginning when God created the heavens and the earth,"),
             label("[1:2] the earth was a formless void and darkness covered the face of the deep, while a wind from God swept over the face of the waters."),
             label("[1:3] Then God said, \"Let there be light\"; and there was light."),
@@ -445,128 +445,54 @@ run :: proc () -> bool {
     )
 
 
-    p20table :=
-        table({ 2, 2 }, { stretching({ .Expand, 1 }), stretching({ .MinimalPossible, 1 }) }, {
-            label("Magic:"), label("7f 45 4c 46"),
-            label("Type:"),  label("Shared Object"), 
-        })
-    p20table.stretch.x = true
-    (cast(^Element_Table)p20table).gap = { .Single, .Double }
     
-    // p20 := Element{
-    //     kind = "P20",
+    // NOTE: this is still a useful example
+
+    // c : []u64 = { 2, 3, 5 }
+    // r : [3]u64
+    // divideBetween(cast(u64)width, c, r[:], 1)
     //
-    //     children = { p20scroll },
+    // rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
+    // rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
     //
-    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-    //         rectTitle, rectLine, rest := rect_splitHorizontalLineGap(rect, 1, 1)
+    // drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
+    // drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
     //
-    //         label := Element_Label_default
-    //         label.text = "ELF Header"
-    //         element_render(&label, ctx, rectTitle)
-    //
-    //         drawBlock(ctx.bufferBoxes, rectLine, .SingleCurve)
-    //
-    //         element_render(self.children[0], ctx, rest)
-    //     },
-    //
-    //     input = input_default,
-    //     inputFocus = inputFocus_default,
-    //     focus = proc (self : ^Element) {
-    //         element_unfocus(self)
-    //         element_focus(self.children[0])
-    //     },
-    //     navigate = navigate_default,
-    // }
-    //
-    // p30 := Element{
-    //     kind = "P30",
-    //
-    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-    //         label := Element_Label_default
-    //         label.text = "Program header"
-    //         element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
-    //
-    //         drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-    //     },
-    //
-    //     input = input_default,
-    //     inputFocus = inputFocus_default,
-    //     focus = proc (self : ^Element) {
-    //         element_unfocus(self)
-    //         element_focus(self.children[0])
-    //     },
-    //     navigate = navigate_default,
-    // }
-    //
-    // p50 := Element{
-    //     kind = "P50",
-    //
-    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-    //         label := Element_Label_default
-    //         label.text = "Segment content"
-    //         element_render(&label, ctx, { rect.x, rect.y, rect.z, 1 })
-    //
-    //         drawBlock(ctx.bufferBoxes, { rect.x, rect.y + 1, rect.z, 1 }, .SingleCurve)
-    //     },
-    //
-    //     input = input_default,
-    //     inputFocus = inputFocus_default,
-    //     focus = proc (self : ^Element) {
-    //         element_unfocus(self)
-    //         element_focus(self.children[0])
-    //     },
-    //     navigate = navigate_default,
-    // }
-    //
-    // _root := Element{
-    //     kind = "Root",
-    //
-    //     children = { &p20, &p30, &p50 },
-    //     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
-    //         drawBox(ctx.bufferBoxes, ctx.screenRect, .SingleCurve)
-    //         content := rect_inner(ctx.screenRect)
-    //
-    //         width := content.z
-    //
-    //         c : []u64 = { 2, 3, 5 }
-    //         r : [3]u64
-    //         divideBetween(cast(u64)width, c, r[:], 1)
-    //
-    //         rectA, lineAB, rectBC := rect_splitVerticalLineGap(content, cast(i16)r[0], 1)
-    //         rectB, lineBC, rectC := rect_splitVerticalLineGap(rectBC, cast(i16)r[1], 1)
-    //
-    //         drawBlock(ctx.bufferBoxes, lineAB, .SingleCurve)
-    //         drawBlock(ctx.bufferBoxes, lineBC, .SingleCurve)
-    //
-    //         element_render(self.children[0], ctx, rectA)
-    //         element_render(self.children[1], ctx, rectB)
-    //         element_render(self.children[2], ctx, rectC)
-    //     },
-    //
-    //     input = input_default,
-    //     inputFocus = inputFocus_default,
-    //     focus = proc (self : ^Element) {
-    //         element_unfocus(self)
-    //         element_focus(self.children[0])
-    //     },
-    //     navigate = navigate_default,
-    // }
+    // element_render(self.children[0], ctx, rectA)
+    // element_render(self.children[1], ctx, rectB)
+    // element_render(self.children[2], ctx, rectC)
 
 
     root :=
         box(.Single, {}, {},
-            linear({ priority = 1, fill = .MinimalPossible }, true, {
-                p20table,
+            linear(.Horizontal, .Double, { { priority = 1, fill = .MinimalPossible }, {
+                // TODO: the result is kinda what we expected, but there's not really a way
+                // to split a container proportionally, unless all elements take the same
+                // amount of space prior to getting stretched
+                Stretching{ .Expand, 1 },
+                Stretching{ .Expand, 3 },
+                Stretching{ .Expand, 5 },
+            }, {} }, {
+
+                linear(.Vertical, .Single, { { priority = 1, fill = .MinimalPossible }, {
+                    Stretching{ .MinimalPossible, 1 },
+                    Stretching{ .Expand, 5 }
+                }, {} }, {
+                    label("ELF Header"),
+                    table({ 2, 2 }, { .Single, {} }, { { { .Expand, 1 }, {}, {} }, { { .MinimalPossible, 1 }, {}, {} } }, {
+                        label("Magic:"), label("7f 45 4c 46"),
+                        label("Type:"),  label("Shared Object"), 
+                    })
+                }),
                 label("Test"),
-                label("Test 2")
+                label("Test 2"),
             })
         )
 
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
-    root.children[0].stretch.x = true
-    l, _ := element_retrieve(Element_Linear, root, { 0 })
-    l.gap = .Double
+    element_retrieve(Element_Linear, root, { 0 }).stretch.x = true
+    element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
+    element_retrieve(Element_Table,  root, { 0, 0, 1 }).stretch.x = true
 
 
 

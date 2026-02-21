@@ -2,8 +2,8 @@ package tui
 
 import "core:slice"
 
-stretching :: proc (s : Stretching, o : []LinearStretchingOverride = {}) -> LinearStretching {
-    return { single = s, overrides = o }
+element :: proc (value : $ty, allocator := context.allocator) -> ^Element {
+    return cast(^Element)new_clone(value, allocator)
 }
 
 label :: proc (text : string, allocator := context.allocator) -> ^Element {
@@ -15,13 +15,14 @@ label :: proc (text : string, allocator := context.allocator) -> ^Element {
     return e
 }
 
-linear :: proc (s : Stretching, isHorizontal : bool, children : []^Element, allocator := context.allocator) -> ^Element {
+linear :: proc (orientation : Element_Linear_Orientation, gap : Maybe(BoxType), s : LinearStretching, children : []^Element, allocator := context.allocator) -> ^Element {
     e := new(Element_Linear, allocator)
     e^ = Element_Linear_default
     e.children = slice.clone(children, allocator)
 
-    e.stretching = LinearStretching{ single = s }
-    e.isHorizontal = isHorizontal
+    e.stretching = s
+    e.gap = gap
+    e.isHorizontal = (orientation == .Horizontal)
 
     return e
 }
@@ -48,7 +49,7 @@ box :: proc (border : BoxType, margin : Rect, padding : Rect, child : ^Element, 
     return e
 }
 
-table :: proc (size : Pos, stretching : [2]LinearStretching, children : []^Element, allocator := context.allocator) -> ^Element {
+table :: proc (size : Pos, gap : [2]Maybe(BoxType), stretching : [2]LinearStretching, children : []^Element, allocator := context.allocator) -> ^Element {
     e := new(Element_Table, allocator)
     e^ = Element_Table_default
     e.children = slice.clone(children, allocator)
@@ -67,6 +68,7 @@ table :: proc (size : Pos, stretching : [2]LinearStretching, children : []^Eleme
     // TODO: array and overrides need to be copied to allocator
     e.stretchingCols = stretching[0]
     e.stretchingRows = stretching[1]
+    e.gap = gap
 
     return e
 }

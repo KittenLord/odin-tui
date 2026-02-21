@@ -200,7 +200,8 @@ element_findChildWithFocus :: proc (e : ^Element, focus : ^Element = nil) -> (ch
     return
 }
 
-element_retrieve :: proc ($ty : typeid, root : ^Element, path : []int, kind : string = "") -> (e : ^ty, ok : bool = false) {
+// NOTE: this doesnt return an ok cuz its very inconvenient
+element_retrieve :: proc ($ty : typeid, root : ^Element, path : []int, kind : string = "") -> (e : ^ty = nil) {
     root := root
     for next in path {
         if next >= len(root.children) { return }
@@ -210,7 +211,6 @@ element_retrieve :: proc ($ty : typeid, root : ^Element, path : []int, kind : st
     if kind != "" && root.kind != kind { return }
 
     e = cast(^ty)root
-    ok = true
     return
 }
 
@@ -358,6 +358,11 @@ Element_Label :: struct {
     using base : Element,
 
     text : string,
+}
+
+Element_Linear_Orientation :: enum {
+    Vertical,
+    Horizontal,
 }
 
 // TODO: we probably need to remember the last child that was focused and return to it instead of the first one
