@@ -143,6 +143,11 @@ CellData :: struct {
     style : FontStyle,
 }
 
+BoxCellData :: struct {
+    box : BoxType,
+    style : FontStyle,
+}
+
 // NOTE: there is no latency to copying into user memory as compared to writing to stdout, so we just immediately execute all commands
 CommandBuffer_Buffer :: struct {
     buffer : Buffer(CellData),
@@ -276,33 +281,6 @@ c_styleGet :: proc (cbb : ^CommandBuffer) -> (style : FontStyle) {
     }
 
     panic("bad")
-}
-
-// TODO: how do we change style for boxes?
-
-cc_bufferPresent :: proc (cb : ^CommandBuffer, buffer : Buffer(rune)) {
-    consecutive := true
-    c_goto(cb, buffer.rect.xy)
-
-    for y in 0..<buffer.rect.w {
-        for x in 0..<buffer.rect.z {
-            r := buffer_get(buffer, { x, y }) or_continue
-            if r == '\x00' {
-                consecutive = false
-                continue
-            }
-
-            if !consecutive {
-                c_goto(cb, { x, y })
-                consecutive = true
-            }
-
-            c_appendRune(cb, r)
-        }
-
-        // NOTE: unless buffer is the width of the screen
-        consecutive = false
-    }
 }
 
 cc_bufferPresentCool :: proc (cb : ^CommandBuffer, buffer : Buffer(CellData), dstOffset : Pos, selection : Rect) {

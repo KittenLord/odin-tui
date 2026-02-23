@@ -3,8 +3,11 @@ package tui
 import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
+
 import os "core:os/os2"
 import os_old "core:os"
+import "core:io"
+
 import "core:math"
 import "core:slice"
 import "core:time"
@@ -60,6 +63,10 @@ buffer_create :: proc (r : Rect, $ty : typeid, allocator := context.allocator) -
     return
 }
 
+buffer_free :: proc (buffer : Buffer($ty)) {
+    delete(buffer.data)
+}
+
 buffer_get :: proc (buffer : Buffer($ty), pos : Pos, relative : bool = true) -> (cell : ty, ok : bool = false) {
     rpos := (!relative) ? (pos - buffer.rect.xy) : pos
     if rpos.x < 0 || rpos.y < 0 { return }
@@ -95,42 +102,42 @@ buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos =
     }
 }
 
-drawBox :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
+drawBox :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxCellData) {
     br := br_from_rect(rect)
 
     for x in rect.x..<br.x {
-        buffer_set(buffer, Pos{ x,   rect.y }, type)
-        buffer_set(buffer, Pos{ x, br.y - 1 }, type)
+        buffer_set(buffer, Pos{ x,   rect.y }, box)
+        buffer_set(buffer, Pos{ x, br.y - 1 }, box)
     }
 
     for y in (rect.y + 1)..<(br.y - 1) {
-        buffer_set(buffer, Pos{ rect.x,   y }, type)
-        buffer_set(buffer, Pos{ br.x - 1, y }, type)
+        buffer_set(buffer, Pos{ rect.x,   y }, box)
+        buffer_set(buffer, Pos{ br.x - 1, y }, box)
     }
 }
 
 // NOTE: mostly for drawing lines
-drawBlock :: proc (buffer : Buffer(BoxType), rect : Rect, type : BoxType) {
+drawBlock :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxCellData) {
     br := br_from_rect(rect)
 
     for x in rect.x..<br.x {
         for y in rect.y..<br.y {
-            buffer_set(buffer, Pos{ x, y }, type)
+            buffer_set(buffer, Pos{ x, y }, box)
         }
     }
 }
 
 // TODO: okay this doesnt work that well actually
-resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
+resolveBoxBuffer :: proc (buffer : Buffer(BoxCellData), out : Buffer(CellData)) {
     for x in 0..<buffer.rect.z {
         for y in 0..<buffer.rect.w {
-            type := buffer_get(buffer, { x, y }) or_continue
-            if type == .None { continue }
+            box := buffer_get(buffer, { x, y }) or_continue
+            if box.box == .None { continue }
 
-            n := buffer_get(buffer, { x, y - 1 }) or_else .None
-            e := buffer_get(buffer, { x + 1, y }) or_else .None
-            s := buffer_get(buffer, { x, y + 1 }) or_else .None
-            w := buffer_get(buffer, { x - 1, y }) or_else .None
+            n := (buffer_get(buffer, { x, y - 1 }) or_else { .None, {} }).box
+            e := (buffer_get(buffer, { x + 1, y }) or_else { .None, {} }).box
+            s := (buffer_get(buffer, { x, y + 1 }) or_else { .None, {} }).box
+            w := (buffer_get(buffer, { x - 1, y }) or_else { .None, {} }).box
 
             candidate : BoxCharacter
             for c in BoxCharacters {
@@ -140,10 +147,10 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxType), out : Buffer(rune)) {
                    w not_in c.masks[3] { continue }
 
                 candidate = c
-                if type in c.type { break }
+                if box.box in c.type { break }
             }
 
-            buffer_set(out, { x, y }, candidate.character)
+            buffer_set(out, { x, y }, CellData{ r = candidate.character, style = box.style })
         }
     }
 }
@@ -427,7 +434,7 @@ interactiveDisable :: proc (state : TerminalState) {
 
 
 RenderingContext :: struct {
-    bufferBoxes : Buffer(BoxType),
+    bufferBoxes : Buffer(BoxCellData),
     screenRect : Rect,
     commandBuffer : ^CommandBuffer,
 }
@@ -511,13 +518,13 @@ run :: proc () -> bool {
                     Stretching{ .Expand, 5 }
                 }, {} }, {
                     label("ELF Header"),
-                    table({ 2, 2 }, { .Single, {} }, { { { .Expand, 1 }, {}, {} }, { { .MinimalPossible, 1 }, {}, {} } }, {
+                    table({ 2, 2 }, { .Single, {} }, { { { .Expand, 1 }, { Stretching{ .MinimalNecessary, 1 }, Stretching{ .Expand, 1 } }, {} }, { { .MinimalPossible, 1 }, {}, {} } }, {
                         label("Magic:"), label("7f 45 4c 46"),
                         label("Type:"),  label("Shared Object"), 
                     })
                 }),
                 label("Test"),
-                label("Test 2"),
+                p20scroll,
             })
         )
 
@@ -533,34 +540,61 @@ run :: proc () -> bool {
 
 
 
-    screen := buffer_create(getScreenRect() or_return, rune) or_return
-    box := buffer_create(getScreenRect() or_return, BoxType) or_return
+
+
+
+    screen : Buffer(CellData)
+    box    : Buffer(BoxCellData)
+
+
     cb : CommandBuffer = CommandBuffer_Stdout{
         builder = str.builder_make_none(),
         style = FontStyle_default,
     }
 
 
-    root->focus()
+
+    inputStream := os.to_stream(os.stdin)
 
     sw : time.Stopwatch
 
-    for _ in 0..<1000 {
-        buffer : [32]u8
-        n, err := os.read_at_least(os.stdin, buffer[:], 1)
+    for {
+        // TODO: are there any cases where non-unicode input is needed? raw bytes?
+        c, _, err := io.read_rune(inputStream)
+
+
+
 
 
         time.stopwatch_reset(&sw)
         time.stopwatch_start(&sw)
 
-        element_input(root, utf8.rune_at_pos(transmute(string)buffer[:], 0))
 
 
 
 
-        buffer_reset(box, BoxType.None)
-        buffer_reset(screen, '\x00')
+        screenRect := getScreenRect() or_return
+        element_assignParentRecurse(root)
+
+        if _, focusExists := element_findFocus(root); !focusExists {
+            element_focus(root)
+        }
+
+        element_input(root, c)
+
+        if screen.data == nil || screen.rect != screenRect {
+            buffer_free(screen)
+            buffer_free(box)
+
+            screen = buffer_create(screenRect, CellData) or_return
+            box = buffer_create(screenRect, BoxCellData) or_return
+        }
+
+        buffer_reset(box, BoxCellData{ BoxType.None, FontStyle_default })
+        buffer_reset(screen, CellData{ '\x00', FontStyle_default })
         c_reset(&cb)
+
+
 
 
 
@@ -569,17 +603,19 @@ run :: proc () -> bool {
 
         ctx := RenderingContext{
             bufferBoxes = box,
-            screenRect = getScreenRect() or_break,
+            screenRect = screenRect,
             commandBuffer = &cb,
         }
 
-        element_assignParentRecurse(root)
         element_render(root, &ctx, ctx.screenRect)
 
         resolveBoxBuffer(box, screen)
-        cc_bufferPresent(&cb, screen)
+        cc_bufferPresentCool(&cb, screen, { 0, 0 }, screen.rect)
 
         os.write_string(os.stdout, str.to_string(cb.(CommandBuffer_Stdout).builder))
+
+
+
 
 
         time.stopwatch_stop(&sw)

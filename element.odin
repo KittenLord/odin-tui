@@ -426,7 +426,7 @@ Element_Box_default :: Element_Box{
         rect_m := rect_fix(rect + { self.margin.w, self.margin.x, -(self.margin.y + self.margin.w), -(self.margin.z + self.margin.x) })
 
         if self.border != .None {
-            drawBox(ctx.bufferBoxes, rect_m, self.border)
+            drawBox(ctx.bufferBoxes, rect_m, { self.border, FontStyle_default })
             rect_m = rect_fix(rect + { 1, 1, -2, -2 })
         }
 
@@ -627,10 +627,11 @@ Element_Scroll_default :: Element_Scroll{
 
         // NOTE: thank GOD we don't have or_do!!!!!
         for _ in 0..<1 {
-            // TODO: free resources lol
             buffer := buffer_create(srect, CellData) or_break
-            screen := buffer_create(srect, rune) or_break
-            box := buffer_create(srect, BoxType) or_break
+            box    := buffer_create(srect, BoxCellData) or_break
+
+            defer buffer_free(buffer)
+            defer buffer_free(box)
 
             cb : CommandBuffer = CommandBuffer_Buffer{
                 buffer = buffer,
@@ -648,8 +649,7 @@ Element_Scroll_default :: Element_Scroll{
 
             element_render(c, &sctx, sctx.screenRect)
 
-            resolveBoxBuffer(box, screen)
-            cc_bufferPresent(&cb, screen)
+            resolveBoxBuffer(box, buffer)
 
 
 
@@ -696,6 +696,7 @@ Element_Scroll_default :: Element_Scroll{
 
             if self.scrollbar.y {
                 start_size := calculateScrollbar(rect.w, srect.w, oldRect.w - 2, self.offset.y)
+                log.debugf("SCROLL %v %v %v %v -> %v", rect.w, srect.w, oldRect.w - 2, self.offset.y, start_size)
 
                 screct := Rect{ oldRect.x + oldRect.z - 1, oldRect.y + 1 + start_size.x, 1, start_size.y }
                 cc_fill(ctx.commandBuffer, screct, '𜸩')
@@ -821,8 +822,8 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
     h := self.isHorizontal
     mflip :: proc (p : Pos, h : bool) -> Pos {
-        if !h { return p.xy }
-        else  { return p.yx }
+        if h { return p.yx }
+        else { return p.xy }
     }
 
     singleMax : i16 = 0
@@ -886,10 +887,12 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         }
     }
 
+    log.debugf("LINEAR %v", linearLimits)
+
     linearTotal = math.sum(linearLimits)
 
     if !rendering {
-        size = mflip(Pos{ singleMax, linearTotal + lg }, h)
+        size = mflip(Pos{ singleMax, linearTotal + g.y }, h)
         return
     }
 
@@ -904,7 +907,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         if useGap && i != len(self.children) - 1 {
             gsize := mflip(Pos{ singleLimit, 1 }, h)
-            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, border)
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, { border, FontStyle_default })
 
             offset += mflip(Pos{ 0, 1 }, h)
         }
@@ -1033,7 +1036,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
         s := linearStretching_get(self.stretchingRows, cast(int)i)
 
         stretchingRows[i] = s
-        priorityCols[i] = calculatePriority(s)
+        priorityRows[i] = calculatePriority(s)
     }
 
 
@@ -1136,7 +1139,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
             if useGap.y && y < self.configuration.rect.w - 1 {
                 if x == 0 {
-                    drawBlock(ctx.bufferBoxes, { offset.x, offset.y, oldRect.z, 1 }, gap.y)
+                    drawBlock(ctx.bufferBoxes, { offset.x, offset.y, oldRect.z, 1 }, { gap.y, FontStyle_default })
                 }
 
                 offset.y += 1
@@ -1147,7 +1150,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
         offset.x += (limCols[x])
 
         if useGap.x && x < self.configuration.rect.z - 1 {
-            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, gap.x)
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, { gap.x, FontStyle_default })
             offset.x += 1
         }
     }
