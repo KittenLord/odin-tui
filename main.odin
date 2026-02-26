@@ -558,14 +558,7 @@ run :: proc () -> bool {
 
     sw : time.Stopwatch
 
-    for {
-        // TODO: are there any cases where non-unicode input is needed? raw bytes?
-        c, _, err := io.read_rune(inputStream)
-
-
-
-
-
+    for !root.status.quit {
         time.stopwatch_reset(&sw)
         time.stopwatch_start(&sw)
 
@@ -579,8 +572,6 @@ run :: proc () -> bool {
         if _, focusExists := element_findFocus(root); !focusExists {
             element_focus(root)
         }
-
-        element_input(root, c)
 
         if screen.data == nil || screen.rect != screenRect {
             buffer_free(screen)
@@ -620,6 +611,14 @@ run :: proc () -> bool {
 
         time.stopwatch_stop(&sw)
         log.debugf("DRAW TIME: %v", time.stopwatch_duration(sw))
+
+
+
+
+        // TODO: are there any cases where non-unicode input is needed? raw bytes?
+        c, _, err := io.read_rune(inputStream)
+
+        element_input(root, c)
     }
 
 

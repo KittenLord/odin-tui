@@ -14,6 +14,16 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 
+
+EventType :: enum {
+    Quit,
+}
+
+Event :: struct {
+    type : EventType,
+}
+
+
 Nav :: enum {
     N, E, S, W,
 }
@@ -48,10 +58,16 @@ Pos_from_hjkl :: proc (r : rune) -> Pos {
     return Pos_from_Nav(Nav_from_hjkl(r))
 }
 
+// NOTE: im not sure whether we should have a separate Element_Root element, or if we should just slap extra data to every single element for convenience
+ElementStatus :: struct {
+    quit : bool,
+}
+
 Element :: struct {
     kind : string,
 
     children : []^Element,
+    status : ElementStatus,
 
     parent : ^Element,
     focused : bool,
@@ -65,6 +81,9 @@ Element :: struct {
 
     focus      : proc (self : ^Element),
     navigate   : proc (self : ^Element, dir : Nav),
+
+    event      : proc (self : ^Element, event : Event) -> (propagate : bool),
+    interact   : proc (self : ^Element),
 
 
     // TODO: this might become a struct of style-related things
@@ -93,6 +112,14 @@ inputFocus_default :: proc (self : ^Element, input : rune) {
         self->navigate(.N)
     case 'l':
         self->navigate(.E)
+
+    case '\n':
+        // self->interact()
+        element_interact(self)
+
+    case 'q':
+        element_event(element_root(self), Event{ type = .Quit })
+
     case:
         break
     }
@@ -105,6 +132,16 @@ focus_default :: proc (self : ^Element) {
 navigate_default :: proc (self : ^Element, dir : Nav) {
     if element_isRoot(self) { return }
     self.parent->navigate(dir)
+    return
+}
+
+event_default :: proc (self : ^Element, event : Event) -> bool {
+    if event.type == .Quit { self.status.quit = true }
+
+    return true
+}
+
+interact_default :: proc (self : ^Element) {
     return
 }
 
@@ -166,6 +203,19 @@ element_focus :: proc (e : ^Element) {
 
 element_unfocus :: proc (e : ^Element) {
     e.focused = false
+}
+
+element_event :: proc (e : ^Element, event : Event) {
+    propagate := e->event(event)
+    if !propagate { return }
+
+    for c in e.children {
+        element_event(c, event)
+    }
+}
+
+element_interact :: proc (e : ^Element) {
+    e->interact()
 }
 
 
@@ -415,6 +465,8 @@ Element_default :: Element{
     inputFocus = inputFocus_default,
     focus = focus_default,
     navigate = navigate_default,
+    event = event_default,
+    interact = interact_default,
 }
 
 Element_Box_default :: Element_Box{
@@ -465,6 +517,8 @@ Element_Box_default :: Element_Box{
     },
 
     navigate = navigate_default,
+    event = event_default,
+    interact = interact_default,
 }
 
 Element_Label_default :: Element_Label{
@@ -544,6 +598,8 @@ Element_Label_default :: Element_Label{
     inputFocus = inputFocus_default,
     focus = focus_default,
     navigate = navigate_default,
+    event = event_default,
+    interact = interact_default,
 }
 
 Element_Linear_default :: Element_Linear{
@@ -600,6 +656,9 @@ Element_Linear_default :: Element_Linear{
         element_unfocus(pfocus)
         element_focus(self.children[i + int(s)])
     },
+
+    event = event_default,
+    interact = interact_default,
 }
 
 Element_Scroll_default :: Element_Scroll{
@@ -696,7 +755,6 @@ Element_Scroll_default :: Element_Scroll{
 
             if self.scrollbar.y {
                 start_size := calculateScrollbar(rect.w, srect.w, oldRect.w - 2, self.offset.y)
-                log.debugf("SCROLL %v %v %v %v -> %v", rect.w, srect.w, oldRect.w - 2, self.offset.y, start_size)
 
                 screct := Rect{ oldRect.x + oldRect.z - 1, oldRect.y + 1 + start_size.x, 1, start_size.y }
                 cc_fill(ctx.commandBuffer, screct, '𜸩')
@@ -770,6 +828,8 @@ Element_Scroll_default :: Element_Scroll{
     },
 
     navigate = navigate_default,
+    event = event_default,
+    interact = interact_default,
 }
 
 linearStretching_get :: proc (l : LinearStretching, i : int) -> (s : Stretching) {
@@ -887,8 +947,6 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         }
     }
 
-    log.debugf("LINEAR %v", linearLimits)
-
     linearTotal = math.sum(linearLimits)
 
     if !rendering {
@@ -969,6 +1027,9 @@ Element_Table_default :: Element_Table{
 
         navigate_default(self, dir)
     },
+
+    event = event_default,
+    interact = interact_default,
 }
 
 calculatePriority :: proc (s : Stretching, subtract : bool = false) -> u64 {
