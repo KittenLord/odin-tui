@@ -146,6 +146,7 @@ CellData :: struct {
 BoxCellData :: struct {
     box : BoxType,
     style : FontStyle,
+    layer : int,
 }
 
 // NOTE: there is no latency to copying into user memory as compared to writing to stdout, so we just immediately execute all commands

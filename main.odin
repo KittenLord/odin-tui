@@ -134,23 +134,29 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxCellData), out : Buffer(CellData)) 
             box := buffer_get(buffer, { x, y }) or_continue
             if box.box == .None { continue }
 
-            n := (buffer_get(buffer, { x, y - 1 }) or_else { .None, {} }).box
-            e := (buffer_get(buffer, { x + 1, y }) or_else { .None, {} }).box
-            s := (buffer_get(buffer, { x, y + 1 }) or_else { .None, {} }).box
-            w := (buffer_get(buffer, { x - 1, y }) or_else { .None, {} }).box
+            n := (buffer_get(buffer, { x, y - 1 }) or_else { .None, {}, -1 })
+            e := (buffer_get(buffer, { x + 1, y }) or_else { .None, {}, -1 })
+            s := (buffer_get(buffer, { x, y + 1 }) or_else { .None, {}, -1 })
+            w := (buffer_get(buffer, { x - 1, y }) or_else { .None, {}, -1 })
+
+            if n.layer != box.layer { n.box = .None } 
+            if e.layer != box.layer { e.box = .None } 
+            if s.layer != box.layer { s.box = .None } 
+            if w.layer != box.layer { w.box = .None } 
 
             candidate : BoxCharacter
             for c in BoxCharacters {
-                if n not_in c.masks[0] ||
-                   e not_in c.masks[1] ||
-                   s not_in c.masks[2] ||
-                   w not_in c.masks[3] { continue }
+                if n.box not_in c.masks[0] ||
+                   e.box not_in c.masks[1] ||
+                   s.box not_in c.masks[2] ||
+                   w.box not_in c.masks[3] { continue }
 
                 candidate = c
                 if box.box in c.type { break }
             }
 
             buffer_set(out, { x, y }, CellData{ r = candidate.character, style = box.style })
+            // buffer_set(out, { x, y }, CellData{ r = '#', style = box.style })
         }
     }
 }
@@ -434,9 +440,12 @@ interactiveDisable :: proc (state : TerminalState) {
 
 
 RenderingContext :: struct {
-    bufferBoxes : Buffer(BoxCellData),
     screenRect : Rect,
     commandBuffer : ^CommandBuffer,
+
+    bufferBoxes : Buffer(BoxCellData),
+    sharedBoxLayer : int,
+    uniqueBoxLayer : int,
 }
 
 run :: proc () -> bool {
@@ -528,6 +537,16 @@ run :: proc () -> bool {
             })
         )
 
+    testPopup :=
+        box(.Double, {}, {},
+            linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
+                label("This is a test message nausdnioas nasdui asudi basi bduasidb"),
+                box(.Single, {}, {}, 
+                    label("BUTTON")
+                )
+            })
+        )
+
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     element_retrieve(Element_Linear, root, { 0 }).stretch.x = true
     element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
@@ -581,7 +600,7 @@ run :: proc () -> bool {
             box = buffer_create(screenRect, BoxCellData) or_return
         }
 
-        buffer_reset(box, BoxCellData{ BoxType.None, FontStyle_default })
+        buffer_reset(box, BoxCellData{ BoxType.None, FontStyle_default, -1 })
         buffer_reset(screen, CellData{ '\x00', FontStyle_default })
         c_reset(&cb)
 
@@ -593,15 +612,35 @@ run :: proc () -> bool {
         c_clear(&cb)
 
         ctx := RenderingContext{
-            bufferBoxes = box,
             screenRect = screenRect,
             commandBuffer = &cb,
+
+            bufferBoxes = box,
+            sharedBoxLayer = 0,
+            uniqueBoxLayer = 100000,
         }
+
+
 
         element_render(root, &ctx, ctx.screenRect)
 
+        // TODO: remove screen buffer, resolve immediately to the command buffer, due to this we cant clear screen
         resolveBoxBuffer(box, screen)
+        buffer_reset(box, BoxCellData{ .None, FontStyle_default, -1 })
+
+        popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
+
+        cc_fill(ctx.commandBuffer, { 0, 0, popupRect.x, popupRect.y })
+        element_render(testPopup, &ctx, { 0, 0, popupRect.x, popupRect.y })
+        resolveBoxBuffer(box, screen)
+
+
+
+
         cc_bufferPresentCool(&cb, screen, { 0, 0 }, screen.rect)
+
+
+
 
         os.write_string(os.stdout, str.to_string(cb.(CommandBuffer_Stdout).builder))
 

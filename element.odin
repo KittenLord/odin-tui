@@ -88,6 +88,7 @@ Element :: struct {
 
     // TODO: this might become a struct of style-related things
     stretch : [2]bool,
+    newBoxesLayer : bool,
 }
 
 render_default :: proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
@@ -152,6 +153,11 @@ interact_default :: proc (self : ^Element) {
 
 element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     oldStyle := c_styleGet(ctx.commandBuffer)
+    oldLayer := ctx.sharedBoxLayer
+
+    if e.newBoxesLayer {
+        ctx.sharedBoxLayer += 1
+    }
 
     e->render(ctx, rect)
     e.lastRenderedRect = rect
@@ -159,6 +165,8 @@ element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     if c_styleGet(ctx.commandBuffer) != oldStyle {
         c_style(ctx.commandBuffer, oldStyle)
     }
+
+    ctx.sharedBoxLayer = oldLayer
 }
 
 element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
@@ -472,13 +480,15 @@ Element_default :: Element{
 Element_Box_default :: Element_Box{
     kind = "Box",
 
+    newBoxesLayer = true,
+
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Box)self
 
         rect_m := rect_fix(rect + { self.margin.w, self.margin.x, -(self.margin.y + self.margin.w), -(self.margin.z + self.margin.x) })
 
         if self.border != .None {
-            drawBox(ctx.bufferBoxes, rect_m, { self.border, FontStyle_default })
+            drawBox(ctx.bufferBoxes, rect_m, { self.border, FontStyle_default, ctx.sharedBoxLayer })
             rect_m = rect_fix(rect + { 1, 1, -2, -2 })
         }
 
@@ -494,8 +504,8 @@ Element_Box_default :: Element_Box{
 
         border : i16 = self.border != .None ? 1 : 0
         delta := Pos{
-            self.margin.w + self.margin.y + self.padding.w + self.padding.y + border,
-            self.margin.x + self.margin.z + self.padding.x + self.padding.z + border,
+            self.margin.w + self.margin.y + self.padding.w + self.padding.y + (border * 2),
+            self.margin.x + self.margin.z + self.padding.x + self.padding.z + (border * 2),
         }
 
         if len(self.children) > 0 {
@@ -965,7 +975,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         if useGap && i != len(self.children) - 1 {
             gsize := mflip(Pos{ singleLimit, 1 }, h)
-            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, { border, FontStyle_default })
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, gsize.x, gsize.y }, { border, FontStyle_default, ctx.sharedBoxLayer })
 
             offset += mflip(Pos{ 0, 1 }, h)
         }
@@ -1200,7 +1210,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
             if useGap.y && y < self.configuration.rect.w - 1 {
                 if x == 0 {
-                    drawBlock(ctx.bufferBoxes, { offset.x, offset.y, oldRect.z, 1 }, { gap.y, FontStyle_default })
+                    drawBlock(ctx.bufferBoxes, { offset.x, offset.y, oldRect.z, 1 }, { gap.y, FontStyle_default, ctx.sharedBoxLayer })
                 }
 
                 offset.y += 1
@@ -1211,7 +1221,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
         offset.x += (limCols[x])
 
         if useGap.x && x < self.configuration.rect.z - 1 {
-            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, { gap.x, FontStyle_default })
+            drawBlock(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, { gap.x, FontStyle_default, ctx.sharedBoxLayer })
             offset.x += 1
         }
     }
