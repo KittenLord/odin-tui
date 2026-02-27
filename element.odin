@@ -717,8 +717,7 @@ Element_Scroll_default :: Element_Scroll{
 
 
             element_render(c, &sctx, sctx.screenRect)
-
-            resolveBoxBuffer(box, buffer)
+            cc_resolveBoxBuffer(&cb, box)
 
 
 

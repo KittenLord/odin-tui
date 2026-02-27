@@ -249,7 +249,8 @@ c_styleClear :: proc (cbb : ^CommandBuffer) {
 }
 
 c_style :: proc (cbb : ^CommandBuffer, style : FontStyle) -> (previous : FontStyle) {
-    previous = style
+    previous = c_styleGet(cbb)
+    if style == previous { return }
 
     switch cb in cbb {
     case CommandBuffer_Stdout:

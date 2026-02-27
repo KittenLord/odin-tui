@@ -128,11 +128,16 @@ drawBlock :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxCellData)
 }
 
 // TODO: okay this doesnt work that well actually
-resolveBoxBuffer :: proc (buffer : Buffer(BoxCellData), out : Buffer(CellData)) {
-    for x in 0..<buffer.rect.z {
-        for y in 0..<buffer.rect.w {
+cc_resolveBoxBuffer :: proc (cb : ^CommandBuffer, buffer : Buffer(BoxCellData)) {
+    consecutive := false
+
+    for y in 0..<buffer.rect.w {
+        for x in 0..<buffer.rect.z {
             box := buffer_get(buffer, { x, y }) or_continue
-            if box.box == .None { continue }
+            if box.box == .None {
+                consecutive = false
+                continue
+            }
 
             n := (buffer_get(buffer, { x, y - 1 }) or_else { .None, {}, -1 })
             e := (buffer_get(buffer, { x + 1, y }) or_else { .None, {}, -1 })
@@ -145,6 +150,7 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxCellData), out : Buffer(CellData)) 
             if w.layer != box.layer { w.box = .None } 
 
             candidate : BoxCharacter
+            canditateFound := false
             for c in BoxCharacters {
                 if n.box not_in c.masks[0] ||
                    e.box not_in c.masks[1] ||
@@ -152,12 +158,27 @@ resolveBoxBuffer :: proc (buffer : Buffer(BoxCellData), out : Buffer(CellData)) 
                    w.box not_in c.masks[3] { continue }
 
                 candidate = c
+                canditateFound = true
                 if box.box in c.type { break }
             }
 
-            buffer_set(out, { x, y }, CellData{ r = candidate.character, style = box.style })
+            if !canditateFound {
+                consecutive = false
+                continue
+            }
+
+            if !consecutive {
+                consecutive = true
+                c_goto(cb, { x, y } + buffer.rect.xy)
+            }
+
+            c_style(cb, box.style)
+            c_appendRune(cb, candidate.character)
+            // buffer_set(out, { x, y }, CellData{ r = candidate.character, style = box.style })
             // buffer_set(out, { x, y }, CellData{ r = '#', style = box.style })
         }
+
+        consecutive = false
     }
 }
 
@@ -540,7 +561,7 @@ run :: proc () -> bool {
     testPopup :=
         box(.Double, {}, {},
             linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
-                label("This is a test message nausdnioas nasdui asudi basi bduasidb"),
+                label("This is a test message"),
                 box(.Single, {}, {}, 
                     label("BUTTON")
                 )
@@ -562,7 +583,6 @@ run :: proc () -> bool {
 
 
 
-    screen : Buffer(CellData)
     box    : Buffer(BoxCellData)
 
 
@@ -592,16 +612,12 @@ run :: proc () -> bool {
             element_focus(root)
         }
 
-        if screen.data == nil || screen.rect != screenRect {
-            buffer_free(screen)
+        if box.data == nil || box.rect != screenRect {
             buffer_free(box)
-
-            screen = buffer_create(screenRect, CellData) or_return
             box = buffer_create(screenRect, BoxCellData) or_return
         }
 
         buffer_reset(box, BoxCellData{ BoxType.None, FontStyle_default, -1 })
-        buffer_reset(screen, CellData{ '\x00', FontStyle_default })
         c_reset(&cb)
 
 
@@ -623,21 +639,15 @@ run :: proc () -> bool {
 
 
         element_render(root, &ctx, ctx.screenRect)
+        cc_resolveBoxBuffer(&cb, box)
 
-        // TODO: remove screen buffer, resolve immediately to the command buffer, due to this we cant clear screen
-        resolveBoxBuffer(box, screen)
         buffer_reset(box, BoxCellData{ .None, FontStyle_default, -1 })
 
         popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
 
         cc_fill(ctx.commandBuffer, { 0, 0, popupRect.x, popupRect.y })
         element_render(testPopup, &ctx, { 0, 0, popupRect.x, popupRect.y })
-        resolveBoxBuffer(box, screen)
-
-
-
-
-        cc_bufferPresentCool(&cb, screen, { 0, 0 }, screen.rect)
+        cc_resolveBoxBuffer(&cb, box)
 
 
 
