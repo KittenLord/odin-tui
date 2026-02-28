@@ -63,11 +63,18 @@ ElementStatus :: struct {
     quit : bool,
 }
 
+Environment :: struct {
+    quit : bool,
+
+    layers : []^Element,
+}
+
 Element :: struct {
     kind : string,
 
     children : []^Element,
-    status : ElementStatus,
+    // status : ElementStatus,
+    environment : ^Environment,
 
     parent : ^Element,
     focused : bool,
@@ -137,7 +144,9 @@ navigate_default :: proc (self : ^Element, dir : Nav) {
 }
 
 event_default :: proc (self : ^Element, event : Event) -> bool {
-    if event.type == .Quit { self.status.quit = true }
+    if event.type == .Quit {
+        element_getEnvironment(self).quit = true
+    }
 
     return true
 }
@@ -229,6 +238,10 @@ element_interact :: proc (e : ^Element) {
 
 
 
+element_getEnvironment :: proc (e : ^Element) -> (env : ^Environment) {
+    env = element_root(e).environment
+    return
+}
 
 element_findFocus :: proc (e : ^Element, excludeSelf : bool = false) -> (focus : ^Element, found : bool = false) {
     if e.focused && excludeSelf  { return }
@@ -612,6 +625,7 @@ Element_Label_default :: Element_Label{
     interact = interact_default,
 }
 
+// TODO: allow user to *hardcore* proportion values
 Element_Linear_default :: Element_Linear{
     kind = "Linear",
 

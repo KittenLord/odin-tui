@@ -558,20 +558,27 @@ run :: proc () -> bool {
             })
         )
 
-    testPopup :=
-        box(.Double, {}, {},
-            linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
-                label("This is a test message"),
-                box(.Single, {}, {}, 
-                    label("BUTTON")
-                )
-            })
-        )
-
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     element_retrieve(Element_Linear, root, { 0 }).stretch.x = true
     element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
     element_retrieve(Element_Table,  root, { 0, 0, 1 }).stretch.x = true
+
+    testPopup :=
+        box(.Double, {}, {},
+            linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
+                label("This is a test message."),
+                linear(.Horizontal, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
+                    box(.Single, {}, {}, 
+                        label("YES")
+                    ),
+                    box(.Single, {}, {}, 
+                        label("NO")
+                    ),
+                })
+            })
+        )
+
+    element_retrieve(Element, testPopup, { 0, 1 }).stretch.x = true
 
 
 
@@ -582,6 +589,12 @@ run :: proc () -> bool {
 
 
 
+    env := Environment{
+        quit = false,
+        layers = { root, }
+    }
+
+    root.environment = &env
 
     box    : Buffer(BoxCellData)
 
@@ -597,7 +610,7 @@ run :: proc () -> bool {
 
     sw : time.Stopwatch
 
-    for !root.status.quit {
+    for !env.quit {
         time.stopwatch_reset(&sw)
         time.stopwatch_start(&sw)
 
