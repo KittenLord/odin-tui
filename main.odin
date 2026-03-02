@@ -581,21 +581,21 @@ run :: proc () -> bool {
     element_retrieve(Element, testPopup, { 0, 1 }).stretch.x = true
 
 
-
-    tstate, _ := interactiveEnable()
-    defer interactiveDisable(tstate)
-
-
-
-
-
     env : Environment
     env_addLayer(&env, root, true)
+    // env_addLayer(&env, testPopup, true)
 
 
 
 
-    box    : Buffer(BoxCellData)
+
+
+
+
+
+
+
+    box : Buffer(BoxCellData)
     cb : CommandBuffer = CommandBuffer_Stdout{
         builder = str.builder_make_none(),
         style = FontStyle_default,
@@ -603,9 +603,14 @@ run :: proc () -> bool {
 
 
 
-    inputStream := os.to_stream(os.stdin)
-
     sw : time.Stopwatch
+
+
+
+
+    tstate, _ := interactiveEnable()
+    defer interactiveDisable(tstate)
+    inputStream := os.to_stream(os.stdin)
 
     for !env.quit {
         time.stopwatch_reset(&sw)
@@ -632,6 +637,7 @@ run :: proc () -> bool {
         c_styleClear(&cb)
         c_clear(&cb)
 
+        // TODO: im not sure, but it might be more useful to delegate context creation to environment
         ctx := RenderingContext{
             screenRect = screenRect,
             commandBuffer = &cb,
@@ -642,17 +648,7 @@ run :: proc () -> bool {
         }
 
 
-
-        element_render(root, &ctx, ctx.screenRect)
-        cc_resolveBoxBuffer(&cb, box)
-        //
-        // buffer_reset(box, BoxCellData{ .None, FontStyle_default, -1 })
-        //
-        // popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
-        //
-        // cc_fill(ctx.commandBuffer, { 0, 0, popupRect.x, popupRect.y })
-        // element_render(testPopup, &ctx, { 0, 0, popupRect.x, popupRect.y })
-        // cc_resolveBoxBuffer(&cb, box)
+        env_render(&env, &ctx, ctx.screenRect)
 
 
 

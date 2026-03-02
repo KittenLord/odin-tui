@@ -76,3 +76,51 @@ env_addLayer :: proc (env : ^Environment, root : ^Element, autofocus : bool, foc
 
     return layer.id
 }
+
+env_getLayer :: proc (env : ^Environment, id : int) -> (layer : ^EnvironmentLayer, index : int, found : bool = false) {
+    for &l, i in env.layers {
+        if l.id == id {
+            layer = &l
+            index = i
+            found = true
+            return
+        }
+    }
+
+    return
+}
+
+env_removeLayer :: proc (env : ^Environment, layerId : int) {
+    toRemove, toRemoveIndex, ok := env_getLayer(env, layerId)
+    if !ok { return }
+
+    giveFocusToId := toRemove.returnFocusTo
+    focusValue := toRemove.focused
+
+    // TODO: the elements are allocated by the user prior to creating the layer,
+    // but we probably still need to come up with some way to free elements, if
+    // we ever need to create prefabs or smth like that
+    ordered_remove(&env.layers, toRemoveIndex)
+
+    giveFocus, _, okf := env_getLayer(env, giveFocusToId)
+    if !okf { return }
+
+    giveFocus.focused = focusValue
+    return
+}
+
+env_render :: proc (env : ^Environment, ctx : ^RenderingContext, rect : Rect) {
+    for layer, i in env.layers {
+        // popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
+        // align the rectangle (in the center for example)
+        elementRect := rect
+
+        if i != 0 {
+            cc_fill(ctx.commandBuffer, rect)
+            buffer_reset(ctx.bufferBoxes, BoxCellData{ .None, FontStyle_default, -1 })
+        }
+
+        element_render(layer.root, ctx, elementRect)
+        cc_resolveBoxBuffer(ctx.commandBuffer, ctx.bufferBoxes)
+    }
+}
