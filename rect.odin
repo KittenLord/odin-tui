@@ -100,3 +100,17 @@ rect_intersection :: proc (a, b : Rect) -> (c : Rect) {
 
     return
 }
+
+RectAlignmentMode :: enum {
+    Begin,      // rect sticks to the smaller coordinate
+    End,        // rect sticks to the bigger coordinate
+    Shift0,     // rect is aligned to the center, but if margin is uneven it is closer to the smaller coordinate
+    Shift1,     // same as Shift0, but closer to the bigger coordinate
+    Expand1,    // if margin is uneven, expand the rect by 1
+    Shrink1,    // if margin is uneven, shrink the rect by 1
+    Fill,       // dont align, just expand
+}
+
+rect_align :: proc (inner, outer : Rect) -> (aligned : Rect) {
+    return
+}

@@ -589,16 +589,13 @@ run :: proc () -> bool {
 
 
 
-    env := Environment{
-        quit = false,
-        layers = { root, }
-    }
+    env : Environment
+    env_addLayer(&env, root, true)
 
-    root.environment = &env
+
+
 
     box    : Buffer(BoxCellData)
-
-
     cb : CommandBuffer = CommandBuffer_Stdout{
         builder = str.builder_make_none(),
         style = FontStyle_default,
@@ -619,11 +616,6 @@ run :: proc () -> bool {
 
 
         screenRect := getScreenRect() or_return
-        element_assignParentRecurse(root)
-
-        if _, focusExists := element_findFocus(root); !focusExists {
-            element_focus(root)
-        }
 
         if box.data == nil || box.rect != screenRect {
             buffer_free(box)
@@ -653,14 +645,14 @@ run :: proc () -> bool {
 
         element_render(root, &ctx, ctx.screenRect)
         cc_resolveBoxBuffer(&cb, box)
-
-        buffer_reset(box, BoxCellData{ .None, FontStyle_default, -1 })
-
-        popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
-
-        cc_fill(ctx.commandBuffer, { 0, 0, popupRect.x, popupRect.y })
-        element_render(testPopup, &ctx, { 0, 0, popupRect.x, popupRect.y })
-        cc_resolveBoxBuffer(&cb, box)
+        //
+        // buffer_reset(box, BoxCellData{ .None, FontStyle_default, -1 })
+        //
+        // popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
+        //
+        // cc_fill(ctx.commandBuffer, { 0, 0, popupRect.x, popupRect.y })
+        // element_render(testPopup, &ctx, { 0, 0, popupRect.x, popupRect.y })
+        // cc_resolveBoxBuffer(&cb, box)
 
 
 
@@ -680,7 +672,7 @@ run :: proc () -> bool {
         // TODO: are there any cases where non-unicode input is needed? raw bytes?
         c, _, err := io.read_rune(inputStream)
 
-        element_input(root, c)
+        env_input(&env, c)
     }
 
 

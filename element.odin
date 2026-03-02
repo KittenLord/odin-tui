@@ -63,11 +63,11 @@ ElementStatus :: struct {
     quit : bool,
 }
 
-Environment :: struct {
-    quit : bool,
 
-    layers : []^Element,
-}
+
+
+
+
 
 Element :: struct {
     kind : string,
@@ -77,7 +77,6 @@ Element :: struct {
     environment : ^Environment,
 
     parent : ^Element,
-    focused : bool,
     lastRenderedRect : Rect,
 
     render     : proc (self : ^Element, ctx : ^RenderingContext, rect : Rect),
@@ -178,6 +177,12 @@ element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     ctx.sharedBoxLayer = oldLayer
 }
 
+// TODO: probably merge with element_render with extra arguments
+element_renderNecessary :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
+    size := element_negotiate(e, Constraints{ preferredSize = rect.zw / 2, maxSize = rect.zw, widthByHeightPriceRatio = 1 })
+    element_render(e, ctx, Rect{ rect.x, rect.y, size.x, size.y })
+}
+
 element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
     r := e->negotiate(constraints)
     r = { math.min(r.x, constraints.maxSize.x), math.min(r.y, constraints.maxSize.y) }
@@ -185,41 +190,19 @@ element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : P
     return r
 }
 
-element_input :: proc (e : ^Element, input : rune) {
-    // NOTE: prevents multiple elements from receiving the same inputs due to the focus changing mid-traversing
-    element_inputSingleFocus(e, input)
-    element_inputRawOnly(e, input)
-}
-
-element_inputSingleFocus :: proc (e : ^Element, input : rune) -> bool {
-    if e.focused {
-        e->inputFocus(input)
-        return true
-    }
-
-    for c in e.children {
-        if element_inputSingleFocus(c, input) { return true }
-    }
-
-    return false
-}
-
-element_inputRawOnly :: proc (e : ^Element, input : rune) {
-    if !e.focused { e->input(input) }
-
-    for c in e.children {
-        element_inputRawOnly(c, input)
-    }
-}
-
 element_focus :: proc (e : ^Element) {
-    e.focused = true
+    layer := element_getLayer(e)
 
+    if layer.focus != nil {
+        element_unfocus(layer.focus) // TODO: do we need this?
+    }
+
+    layer.focus = e
     e->focus()
 }
 
 element_unfocus :: proc (e : ^Element) {
-    e.focused = false
+    return
 }
 
 element_event :: proc (e : ^Element, event : Event) {
@@ -237,37 +220,58 @@ element_interact :: proc (e : ^Element) {
 
 
 
+element_isChild :: proc (parent : ^Element, child : ^Element, direct : bool = false) -> bool {
+    if parent == child { return false }
+
+    if direct { return child.parent == parent }
+
+    child := child
+    for !element_isRoot(child) {
+        child = child.parent
+        if child == parent { return true }
+    }
+    
+    return false
+}
 
 element_getEnvironment :: proc (e : ^Element) -> (env : ^Environment) {
     env = element_root(e).environment
     return
 }
 
-element_findFocus :: proc (e : ^Element, excludeSelf : bool = false) -> (focus : ^Element, found : bool = false) {
-    if e.focused && excludeSelf  { return }
-    if e.focused { return e, true }
-    for c in e.children {
-        focus, found = element_findFocus(c)
-        if found { break }
+element_getLayer :: proc (e : ^Element) -> (layer : ^EnvironmentLayer) {
+    r := element_root(e)
+    env := element_getEnvironment(r)
+    for &l in env.layers {
+        if l.root == r {
+            layer = &l
+            return
+        }
     }
 
-    return
+    panic("bad")
 }
 
-element_findChildWithFocus :: proc (e : ^Element, focus : ^Element = nil) -> (child : ^Element, found : bool = false) {
-    focus := focus
+element_getFocus :: proc (e : ^Element) -> (focus : ^Element, ok : bool) {
+    layer := element_getLayer(e)
+    return layer.focus, layer.focus != nil
+}
 
-    if focus == nil {
-        focus = element_findFocus(e) or_return
-    }
+element_isFocused :: proc (e : ^Element) -> bool {
+    focus, ok := element_getFocus(e)
+    return ok && focus == e
+}
 
+element_findChildContainingFocus :: proc (e : ^Element) -> (child : ^Element, found : bool = false) {
+    focus := element_getFocus(e) or_return
     if focus == e { return }
 
-    for focus.parent != e {
+    for !element_isRoot(focus) && focus.parent != e {
         focus = focus.parent
     }
 
     child = focus
+    found = (focus.parent == e)
     return
 }
 
@@ -534,7 +538,6 @@ Element_Box_default :: Element_Box{
 
     focus = proc (self : ^Element) {
         if len(self.children) > 0 {
-            element_unfocus(self)
             element_focus(self.children[0])
         }
     },
@@ -550,7 +553,7 @@ Element_Label_default :: Element_Label{
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
 
-        if self.focused {
+        if element_isFocused(self) {
             c_style(ctx.commandBuffer, FontStyle{ fg = FontColor_Standard.Black, bg = FontColor_Standard.White })
             cc_fill(ctx.commandBuffer, rect)
         }
@@ -642,19 +645,14 @@ Element_Linear_default :: Element_Linear{
 
     focus = proc (self : ^Element) {
         self := cast(^Element_Linear)self
-
-        element_unfocus(self)
         element_focus(self.children[0])
     },
 
     navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Linear)self
 
-        focus, found := element_findFocus(self)
-        if !found || focus == self { return }
-        pfocus := focus
-
-        focus, _ = element_findChildWithFocus(self, focus)
+        focus, foundFocus := element_findChildContainingFocus(self)
+        if !foundFocus { return }
 
         i, f := slice.linear_search(self.children, focus)
 
@@ -677,7 +675,6 @@ Element_Linear_default :: Element_Linear{
             return
         }
 
-        element_unfocus(pfocus)
         element_focus(self.children[i + int(s)])
     },
 
@@ -736,7 +733,7 @@ Element_Scroll_default :: Element_Scroll{
 
 
             // TODO: tf do we do if element is bigger than rect? I guess we have to reemploy the !targetFocus scrolling in that situation
-            if focus, ok := element_findFocus(self, excludeSelf = true); self.targetFocus && ok {
+            if focus, ok := element_getFocus(self); self.targetFocus && ok && element_isChild(self, focus) {
                 fcrect := focus.lastRenderedRect
                 srect := Rect{ self.offset.x, self.offset.y, rect.z, rect.w }
 
@@ -842,7 +839,6 @@ Element_Scroll_default :: Element_Scroll{
         self := cast(^Element_Scroll)self
 
         if self.targetFocus {
-            element_unfocus(self)
             element_focus(self.children[0])
         }
         else {
@@ -1016,18 +1012,13 @@ Element_Table_default :: Element_Table{
 
         n, _ := buffer_get(self.configuration, { 0, 0 })
         e := self.children[n]
-
-        element_unfocus(self)
         element_focus(e)
     },
     navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Table)self
 
-        focus, found := element_findFocus(self)
-        if !found || focus == self { return }
-        pfocus := focus
-
-        focus, _ = element_findChildWithFocus(self, focus)
+        focus, found := element_findChildContainingFocus(self)
+        if !found { return }
 
         for x in 0..<self.configuration.rect.z {
             for y in 0..<self.configuration.rect.w {
@@ -1040,7 +1031,6 @@ Element_Table_default :: Element_Table{
                     n := buffer_get(self.configuration, pos) or_continue
                     e := self.children[n]
 
-                    element_unfocus(pfocus)
                     element_focus(e)
 
                     return
