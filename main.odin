@@ -563,6 +563,18 @@ run :: proc () -> bool {
     element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
     element_retrieve(Element_Table,  root, { 0, 0, 1 }).stretch.x = true
 
+    textPopup := 
+        box(.Double, {}, {},
+            linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
+                label("Information idk"),
+                box(.Single, {}, {}, 
+                    label("OK")
+                ),
+            })
+        )
+
+    element_retrieve(Element, textPopup, { 0, 1 }).stretch.x = true
+
     testPopup :=
         box(.Double, {}, {},
             linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
@@ -583,7 +595,7 @@ run :: proc () -> bool {
 
     env : Environment
     env_addLayer(&env, root, { .Fill, .Fill }, true)
-    env_addLayer(&env, testPopup, { .Expand1, .Expand1 }, true)
+    env_addLayer(&env, textPopup, { .Expand1, .Expand1 }, true)
 
 
 

@@ -116,6 +116,8 @@ env_removeLayer :: proc (env : ^Environment, layerId : int) {
 env_render :: proc (env : ^Environment, ctx : ^RenderingContext, rect : Rect) {
     for layer, i in env.layers {
         elementSize := element_negotiate(layer.root, Constraints{ preferredSize = rect.zw / 2, maxSize = rect.zw, widthByHeightPriceRatio = 1 })
+        // TODO: now that I think about it, maybe this should just be handled entirely by the Box element?
+        // It will need these features either way
         elementRect := rect_align({ 0, 0, elementSize.x, elementSize.y }, rect, layer.align)
 
         if i != 0 {

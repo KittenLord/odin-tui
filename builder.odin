@@ -6,6 +6,10 @@ element :: proc (value : $ty, allocator := context.allocator) -> ^Element {
     return cast(^Element)new_clone(value, allocator)
 }
 
+instantiate :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
+    return element_clone(e, allocator)
+}
+
 label :: proc (text : string, allocator := context.allocator) -> ^Element {
     e := new(Element_Label, allocator)
     e^ = Element_Label_default

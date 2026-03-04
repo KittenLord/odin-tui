@@ -71,9 +71,9 @@ ElementStatus :: struct {
 
 Element :: struct {
     kind : string,
+    size : int,
 
     children : []^Element,
-    // status : ElementStatus,
     environment : ^Environment,
 
     parent : ^Element,
@@ -177,12 +177,6 @@ element_render :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
     ctx.sharedBoxLayer = oldLayer
 }
 
-// TODO: probably merge with element_render with extra arguments
-element_renderNecessary :: proc (e : ^Element, ctx : ^RenderingContext, rect : Rect) {
-    size := element_negotiate(e, Constraints{ preferredSize = rect.zw / 2, maxSize = rect.zw, widthByHeightPriceRatio = 1 })
-    element_render(e, ctx, Rect{ rect.x, rect.y, size.x, size.y })
-}
-
 element_negotiate :: proc (e : ^Element, constraints : Constraints) -> (size : Pos) {
     r := e->negotiate(constraints)
     r = { math.min(r.x, constraints.maxSize.x), math.min(r.y, constraints.maxSize.y) }
@@ -218,7 +212,20 @@ element_interact :: proc (e : ^Element) {
     e->interact()
 }
 
+// TODO: e->clone()
+element_cloneShallow :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
+    copy := cast(^Element)raw_data(slice.clone(slice.bytes_from_ptr(e, e.size), allocator))
+    return copy
+}
 
+element_clone :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
+    copy := element_cloneShallow(e, allocator)
+    for &c in copy.children {
+        c = element_clone(c, allocator)
+    }
+
+    return copy
+}
 
 element_isChild :: proc (parent : ^Element, child : ^Element, direct : bool = false) -> bool {
     if parent == child { return false }
@@ -275,12 +282,17 @@ element_findChildContainingFocus :: proc (e : ^Element) -> (child : ^Element, fo
     return
 }
 
+BACK :: -1
+
 // NOTE: this doesnt return an ok cuz its very inconvenient
 element_retrieve :: proc ($ty : typeid, root : ^Element, path : []int, kind : string = "") -> (e : ^ty = nil) {
     root := root
     for next in path {
         if next >= len(root.children) { return }
-        root = root.children[next]
+
+        if next == BACK && !element_isRoot(root)
+             { root = root.parent }
+        else { root = root.children[next] }
     }
 
     if kind != "" && root.kind != kind { return }
@@ -483,6 +495,7 @@ Element_Box :: struct {
 
 Element_default :: Element{
     kind = "Element",
+    size = size_of(Element),
 
     render = render_default,
     negotiate = negotiate_default,
@@ -496,6 +509,7 @@ Element_default :: Element{
 
 Element_Box_default :: Element_Box{
     kind = "Box",
+    size = size_of(Element_Box),
 
     newBoxesLayer = true,
 
@@ -549,6 +563,7 @@ Element_Box_default :: Element_Box{
 
 Element_Label_default :: Element_Label{
     kind = "Label",
+    size = size_of(Element_Label),
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Label)self
@@ -631,6 +646,7 @@ Element_Label_default :: Element_Label{
 // TODO: allow user to *hardcore* proportion values
 Element_Linear_default :: Element_Linear{
     kind = "Linear",
+    size = size_of(Element_Linear),
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         Element_Linear_internalRender(self, ctx, rect, rect.zw, true)
@@ -684,6 +700,7 @@ Element_Linear_default :: Element_Linear{
 
 Element_Scroll_default :: Element_Scroll{
     kind = "Scroll",
+    size = size_of(Element_Scroll),
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         self := cast(^Element_Scroll)self
@@ -996,6 +1013,7 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
 Element_Table_default :: Element_Table{
     kind = "Table",
+    size = size_of(Element_Table),
 
     render = proc (self : ^Element, ctx : ^RenderingContext, rect : Rect) {
         Element_Table_internalRender(self, rect, ctx, true)
