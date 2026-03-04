@@ -14,6 +14,18 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 
+// TODO: figure out terminology. Component should be an element structure that constantly gets cloned,
+// basically a prefab, while <something> is an element structure that has a single instance and is
+// assigned to a layer when needed. At this point I will use "component" for the letter, but this is
+// to be changed
+Component :: enum u64 {
+    MessageBox,
+
+    COUNT,
+}
+
+
+
 EnvironmentLayer :: struct {
     id : int,
     returnFocusTo : int, // NOTE: which layer added this one (and to whom return focus after own deletion)
@@ -29,13 +41,33 @@ EnvironmentLayer :: struct {
 
 Environment :: struct {
     quit : bool,
-
     availableLayerId : int,
+
+    components : map[u64][dynamic]^Element,
+
     layers : [dynamic]EnvironmentLayer,
 }
 
+// NOTE: component can be anything castable to u64, as to allow extensibility
+env_addComponent :: proc (env : ^Environment, component : $ty, element : ^Element) -> int {
+    list, ok := &env.components[u64(component)]
+
+    if !ok {
+        env.components[u64(component)] = {}
+        list = &env.components[u64(component)]
+    }
+
+    append(list, element)
+    return len(list)
+}
+
+env_getComponent :: proc (env : ^Environment, component : $ty, $cty : typeid, index : int = 0) -> ^cty {
+    return cast(^cty)env.components[u64(component)][index]
+}
+
 env_input :: proc (env : ^Environment, input : rune) {
-    #reverse for layer in env.layers {
+    // #reverse for layer in env.layers {
+    for layer in env.layers {
         if !layer.focused { continue }
 
         input_internal :: proc (e : ^Element, r : ^Element, input : rune) {
@@ -66,6 +98,13 @@ env_addLayer :: proc (env : ^Environment, root : ^Element, align : [2]RectAlignm
 
         focused = focused,
     }
+
+    if focused {
+        for &layer in env.layers {
+            layer.focused = false
+        }
+    }
+
     append(&env.layers, layer)
 
 

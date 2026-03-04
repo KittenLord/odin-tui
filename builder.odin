@@ -2,12 +2,14 @@ package tui
 
 import "core:slice"
 
-element :: proc (value : $ty, allocator := context.allocator) -> ^Element {
-    return cast(^Element)new_clone(value, allocator)
-}
-
 instantiate :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
     return element_clone(e, allocator)
+}
+
+element :: proc (value : $ty, children : []^Element = nil, allocator := context.allocator) -> ^Element {
+    e := cast(^Element)new_clone(value, allocator)
+    e.children = children == nil ? nil : slice.clone(children, allocator)
+    return e
 }
 
 label :: proc (text : string, allocator := context.allocator) -> ^Element {

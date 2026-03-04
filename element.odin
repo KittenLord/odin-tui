@@ -73,6 +73,7 @@ Element :: struct {
     kind : string,
     size : int,
 
+    // TODO: now that i think about it this should probably be a dynamic array
     children : []^Element,
     environment : ^Environment,
 

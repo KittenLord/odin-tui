@@ -558,6 +558,14 @@ run :: proc () -> bool {
             })
         )
 
+    element_retrieve(Element, root, { 0, 0, 1, 1 }).interact = proc(self : ^Element) {
+        log.debugf("magic")
+
+        env := element_getEnvironment(self)
+        mbox := env_getComponent(env, Component.MessageBox, Element)
+        env_addLayer(env, mbox, { .Expand1, .Expand1 }, true, returnFocusTo = element_getLayer(self).id)
+    }
+
     // TODO: are there even cases where we do NOT watch stretching (when rendering)?
     element_retrieve(Element_Linear, root, { 0 }).stretch.x = true
     element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
@@ -574,28 +582,20 @@ run :: proc () -> bool {
         )
 
     element_retrieve(Element, textPopup, { 0, 1 }).stretch.x = true
+    element_retrieve(Element, textPopup, { 0, 1, 0 }).interact = proc(self : ^Element) {
+        log.debugf("INTERACTION WDAJIODNAOSNDNAS")
 
-    testPopup :=
-        box(.Double, {}, {},
-            linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
-                label("This is a test message."),
-                linear(.Horizontal, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
-                    box(.Single, {}, {}, 
-                        label("YES")
-                    ),
-                    box(.Single, {}, {}, 
-                        label("NO")
-                    ),
-                })
-            })
-        )
-
-    element_retrieve(Element, testPopup, { 0, 1 }).stretch.x = true
+        env := element_getEnvironment(self)
+        env_removeLayer(env, element_getLayer(self).id)
+    }
 
 
     env : Environment
+
+    env_addComponent(&env, Component.MessageBox, textPopup)
+
     env_addLayer(&env, root, { .Fill, .Fill }, true)
-    env_addLayer(&env, textPopup, { .Expand1, .Expand1 }, true)
+    // env_addLayer(&env, textPopup, { .Expand1, .Expand1 }, true)
 
 
 
