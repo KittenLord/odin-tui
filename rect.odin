@@ -111,6 +111,32 @@ RectAlignmentMode :: enum {
     Fill,       // dont align, just expand
 }
 
-rect_align :: proc (inner, outer : Rect) -> (aligned : Rect) {
-    return
+// x - offset
+// y - length
+axis_align :: proc (inner, outer : Pos, mode : RectAlignmentMode = .Shift0) -> (aligned : Pos) {
+    if mode == .Begin { return { outer.x, inner.y } }
+    if mode == .Fill  { return outer.xy }
+    if mode == .End   { return { outer.x + (outer.y - inner.y), inner.y } }
+
+    doubleOffset := (outer.y - inner.y)
+    offset := doubleOffset / 2
+    size := inner.y
+
+    if doubleOffset % 2 == 0 { return { outer.x + offset, size } }
+
+    if mode == .Shift1 { offset += 1 }
+    if mode == .Expand1 { size += 1 }
+    if mode == .Shrink1 {
+        offset += 1
+        size -= 1
+    }
+
+    return { outer.x + offset, size }
+}
+
+rect_align :: proc (inner, outer : Rect, mode : [2]RectAlignmentMode = { .Shift0, .Shift0 }) -> (aligned : Rect) {
+    x := axis_align(inner.xz, outer.xz, mode.x)
+    y := axis_align(inner.yw, outer.yw, mode.y)
+
+    return { x.x, y.x, x.y, y.y }
 }

@@ -18,6 +18,8 @@ EnvironmentLayer :: struct {
     id : int,
     returnFocusTo : int, // NOTE: which layer added this one (and to whom return focus after own deletion)
 
+    align : [2]RectAlignmentMode,
+
     root  : ^Element,
     focus : ^Element,
 
@@ -51,11 +53,13 @@ env_input :: proc (env : ^Environment, input : rune) {
     }
 }
 
-env_addLayer :: proc (env : ^Environment, root : ^Element, autofocus : bool, focused : bool = true, returnFocusTo : int = 0) -> (layerId : int) {
+env_addLayer :: proc (env : ^Environment, root : ^Element, align : [2]RectAlignmentMode, autofocus : bool, focused : bool = true, returnFocusTo : int = 0) -> (layerId : int) {
     env.availableLayerId += 1 // NOTE: 0 is thus not a valid id
     layer := EnvironmentLayer{
         id = env.availableLayerId,
         returnFocusTo = returnFocusTo,
+
+        align = align,
 
         root = root,
         focus = nil,
@@ -111,12 +115,11 @@ env_removeLayer :: proc (env : ^Environment, layerId : int) {
 
 env_render :: proc (env : ^Environment, ctx : ^RenderingContext, rect : Rect) {
     for layer, i in env.layers {
-        // popupRect := element_negotiate(testPopup, Constraints{ preferredSize = screenRect.zw / 2, maxSize = screenRect.zw, widthByHeightPriceRatio = 1 })
-        // align the rectangle (in the center for example)
-        elementRect := rect
+        elementSize := element_negotiate(layer.root, Constraints{ preferredSize = rect.zw / 2, maxSize = rect.zw, widthByHeightPriceRatio = 1 })
+        elementRect := rect_align({ 0, 0, elementSize.x, elementSize.y }, rect, layer.align)
 
         if i != 0 {
-            cc_fill(ctx.commandBuffer, rect)
+            cc_fill(ctx.commandBuffer, elementRect)
             buffer_reset(ctx.bufferBoxes, BoxCellData{ .None, FontStyle_default, -1 })
         }
 

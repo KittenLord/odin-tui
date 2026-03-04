@@ -45,6 +45,8 @@ box :: proc (border : BoxType, margin : Rect, padding : Rect, child : ^Element, 
     e.children = slice.clone([]^Element{ child }, allocator)
 
     e.border = border
+    e.margin = margin
+    e.padding = padding
 
     return e
 }

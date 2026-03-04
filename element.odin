@@ -506,7 +506,7 @@ Element_Box_default :: Element_Box{
 
         if self.border != .None {
             drawBox(ctx.bufferBoxes, rect_m, { self.border, FontStyle_default, ctx.sharedBoxLayer })
-            rect_m = rect_fix(rect + { 1, 1, -2, -2 })
+            rect_m = rect_fix(rect_m + { 1, 1, -2, -2 })
         }
 
         rect_p := rect_fix(rect_m + { self.padding.w, self.padding.x, -(self.padding.y + self.padding.w), -(self.padding.z + self.padding.x) })

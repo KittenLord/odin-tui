@@ -582,8 +582,8 @@ run :: proc () -> bool {
 
 
     env : Environment
-    env_addLayer(&env, root, true)
-    // env_addLayer(&env, testPopup, true)
+    env_addLayer(&env, root, { .Fill, .Fill }, true)
+    env_addLayer(&env, testPopup, { .Expand1, .Expand1 }, true)
 
 
 
