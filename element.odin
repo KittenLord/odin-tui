@@ -3,8 +3,7 @@ package tui
 import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
-import os "core:os/os2"
-import os_old "core:os"
+import "core:os"
 import "core:math"
 import "core:slice"
 
@@ -72,6 +71,8 @@ ElementStatus :: struct {
 Element :: struct {
     kind : string,
     size : int,
+
+    data : rawptr,
 
     // TODO: now that i think about it this should probably be a dynamic array
     children : []^Element,
@@ -211,6 +212,24 @@ element_event :: proc (e : ^Element, event : Event) {
 
 element_interact :: proc (e : ^Element) {
     e->interact()
+}
+
+
+
+
+
+
+element_data :: proc (e : ^Element, $ty : typeid) -> ^ty {
+    return cast(^ty)e.data
+}
+
+element_setData :: proc (e : ^Element, p : rawptr) {
+    e.data = p
+}
+
+element_makeData :: proc (e : ^Element, $ty : typeid, value : ty, allocator := context.allocator) -> ^ty {
+    e.data = make(ty, allocator)
+    return cast(^ty)e.data
 }
 
 // TODO: e->clone()

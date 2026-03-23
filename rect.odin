@@ -3,7 +3,6 @@ package tui
 import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
-import os "core:os/os2"
 
 Pos     :: [2]i16 // col, row
 Rect    :: [4]i16 // col, row, width, height

@@ -4,8 +4,7 @@ import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
 
-import os "core:os/os2"
-import os_old "core:os"
+import "core:os"
 import "core:io"
 
 import "core:math"
@@ -471,7 +470,7 @@ RenderingContext :: struct {
 
 run :: proc () -> bool {
     // when ODIN_DEBUG {
-        logFile, _ := os_old.open("./log.txt", os_old.O_CREATE | os_old.O_TRUNC | os_old.O_RDWR)
+        logFile, _ := os.open("./log.txt", { .Write, .Create })
         context.logger = log.create_file_logger(logFile, .Debug, { .Level, .Short_File_Path, .Line })
     // }
 
@@ -575,15 +574,27 @@ run :: proc () -> bool {
         box(.Double, {}, {},
             linear(.Vertical, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
                 label("Information idk"),
-                box(.Single, {}, {}, 
-                    label("OK")
-                ),
+                linear(.Horizontal, .None, { { priority = 1, fill = .MinimalNecessary }, {}, {} }, {
+                    box(.Single, {}, {}, 
+                        label("YES")
+                    ),
+                    box(.Single, {}, {}, 
+                        label("NO")
+                    ),
+                })
             })
         )
 
     element_retrieve(Element, textPopup, { 0, 1 }).stretch.x = true
-    element_retrieve(Element, textPopup, { 0, 1, 0 }).interact = proc(self : ^Element) {
-        log.debugf("INTERACTION WDAJIODNAOSNDNAS")
+    element_retrieve(Element, textPopup, { 0, 1, 0, 0 }).interact = proc(self : ^Element) {
+        log.debugf("YES")
+
+        env := element_getEnvironment(self)
+        env_removeLayer(env, element_getLayer(self).id)
+    }
+
+    element_retrieve(Element, textPopup, { 0, 1, 1, 0 }).interact = proc(self : ^Element) {
+        log.debugf("NO")
 
         env := element_getEnvironment(self)
         env_removeLayer(env, element_getLayer(self).id)

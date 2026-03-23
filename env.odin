@@ -3,8 +3,7 @@ package tui
 import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
-import os "core:os/os2"
-import os_old "core:os"
+import "core:os"
 import "core:math"
 import "core:slice"
 
