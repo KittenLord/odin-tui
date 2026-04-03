@@ -387,8 +387,53 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
 
 
 
+applyStretching :: proc (total : u64, stretchings : []Stretching, values : []u64) {
+    sum : u64 = 0
+    for v in values { sum += v }
 
-divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0, maxValues : []u64 = nil) {
+    delta : i64 = (i64(total) - i64(sum))
+    deltaOriginal := delta
+
+                 log.debugf("TOTAL %v STR %v VALUES %v DELTA %v", total, stretchings, values, delta)
+    defer log.debugf("RESULT TOTAL %v STR %v VALUES %v DELTA %v", total, stretchings, values, delta)
+
+    one : f64 = 0
+    for s in stretchings { one += cast(f64)calculatePriority(s) }
+
+    for &v, i in values {
+        p := cast(f64)calculatePriority(stretchings[i])
+        inc := cast(i64)math.round(f64(deltaOriginal) * (p / one))
+
+        if i64(v) + inc < 0 {
+            inc -= (i64(v) + inc)
+            log.debugf("COMPOEN")
+        }
+
+        delta -= inc
+        v = u64(i64(v) + inc)
+    }
+
+    if delta == 0 { return }
+
+    // for &v, i in values {
+    //     s := stretchings[i]
+    //     if s.fill == .Expand {
+    //         p := cast(f64)calculatePriority(s)
+    //         inc := i64(f64(delta) * (p / one))
+    //
+    //         if i64(v) + inc < 0 {
+    //             inc -= (i64(v) + inc)
+    //         }
+    //
+    //         delta -= inc
+    //         v = u64(i64(v) + inc)
+    //     }
+    // }
+    //
+    // if delta == 0 { return }
+}
+
+_divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0, maxValues : []u64 = nil) {
     gaps := (cast(u64)len(coefficients) - 1) * gap
     if gaps >= value { return }
 

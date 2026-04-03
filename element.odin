@@ -956,11 +956,11 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
     singleLimit := mflip(rect.zw, h).x
     linearLimit := mflip(rect.zw, h).y
-    linearLimits := make([]i16, len(self.children))
+    linearLimits := make([]u64, len(self.children))
     defer delete(linearLimits)
 
     for &l in linearLimits {
-        l = linearLimit
+        l = cast(u64)linearLimit
     }
 
     linearTotal : i16 = 0
@@ -972,9 +972,9 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         singleMax = 0
 
         for c, i in self.children {
-            maxSize := Pos{ singleLimit, linearLimits[i] }
+            maxSize := Pos{ singleLimit, cast(i16)linearLimits[i] }
 
-            preferredSize := Pos{ singlePreferred, math.min(linearLimits[i], linearLimit / cast(i16)len(self.children)) }
+            preferredSize := Pos{ singlePreferred, math.min(cast(i16)linearLimits[i], linearLimit / cast(i16)len(self.children)) }
             if stretchings[i].fill == .MinimalPossible { preferredSize.y = 1 }
 
             wbhRatio : f64 = 1
@@ -989,22 +989,28 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
         }
 
         delta := mflip(rect.zw, h).y - linearTotal
+        total := mflip(rect.zw, h).y
 
         // NOTE: unintentionally this made stretching not work within a scroll, which is good
-        if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0 }
+        if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0; total = linearTotal }
 
         limit := delta < 0 ? caps : nil
 
         for &c, i in caps { c = cast(u64)math.abs(sizes[i]) }
 
-        divideBetween(cast(u64)math.abs(delta), priorities, transmute([]u64)deltas, maxValues = limit)
-
-        for d, i in deltas {
-            linearLimits[i] = sizes[i] + (sign_i16(delta) * cast(i16)d)
+        for s, i in sizes {
+            linearLimits[i] = cast(u64)s
         }
+
+        applyStretching(cast(u64)total, stretchings, linearLimits)
+        // divideBetween(cast(u64)math.abs(delta), priorities, transmute([]u64)deltas, maxValues = limit)
+
+        // for d, i in deltas {
+        //     linearLimits[i] = sizes[i] + (sign_i16(delta) * cast(i16)d)
+        // }
     }
 
-    linearTotal = math.sum(linearLimits)
+    linearTotal = cast(i16)math.sum(linearLimits)
 
     if !rendering {
         size = mflip(Pos{ singleMax, linearTotal + g.y }, h)
@@ -1013,12 +1019,12 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
     offset := rect.xy
     for c, i in self.children {
-        size := Pos{ singleLimit, linearLimits[i] }
+        size := Pos{ singleLimit, cast(i16)linearLimits[i] }
         size = mflip(size, h)
 
         element_render(c, ctx, { offset.x, offset.y, size.x, size.y })
 
-        offset += mflip(Pos{ 0, linearLimits[i] }, h)
+        offset += mflip(Pos{ 0, cast(i16)linearLimits[i] }, h)
 
         if useGap && i != len(self.children) - 1 {
             gsize := mflip(Pos{ singleLimit, 1 }, h)
@@ -1107,8 +1113,8 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
     maxCols := make([]i16, self.configuration.rect.z)
     maxRows := make([]i16, self.configuration.rect.w)
-    limCols := make([]i16, self.configuration.rect.z)
-    limRows := make([]i16, self.configuration.rect.w)
+    limCols := make([]u64, self.configuration.rect.z)
+    limRows := make([]u64, self.configuration.rect.w)
     defer delete(maxCols)
     defer delete(maxRows)
     defer delete(limCols)
@@ -1168,8 +1174,8 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
 
 
-    for &l in limCols { l = rect.z }
-    for &l in limRows { l = rect.w }
+    for &l in limCols { l = cast(u64)rect.z }
+    for &l in limRows { l = cast(u64)rect.w }
 
 
     lastIteration :: 1
@@ -1186,7 +1192,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
                 n := buffer_get(self.configuration, { x, y }) or_continue
                 e := self.children[n]
 
-                maxSize := Pos{ limCols[x], limRows[y] }
+                maxSize := Pos{ cast(i16)limCols[x], cast(i16)limRows[y] }
 
                 preferredSize := Pos{ math.min(maxSize.x, rect.z / self.configuration.rect.z), math.min(maxSize.y, rect.w / self.configuration.rect.w) }
                 if stretchingCols[x].fill == .MinimalPossible { preferredSize.x = 1 }
@@ -1206,10 +1212,12 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
 
         // NOTE: unless this is the last iteration, elements should get as much space as possible
         dc := rect.z - totalCols
-        if iteration == lastIteration && dc > 0 && (!render || !self.stretch.x) { dc = 0 }
+        tc := rect.z
+        if iteration == lastIteration && dc > 0 && (!render || !self.stretch.x) { dc = 0; tc = totalCols }
 
         dr := rect.w - totalRows
-        if iteration == lastIteration && dr > 0 && (!render || !self.stretch.y) { dr = 0 }
+        tr := rect.w
+        if iteration == lastIteration && dr > 0 && (!render || !self.stretch.y) { dr = 0; tr = totalRows }
 
         lc := dc < 0 ? capCols : nil
         lr := dr < 0 ? capRows : nil
@@ -1217,20 +1225,31 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
         for &c, i in capCols { c = cast(u64)math.abs(maxCols[i]) }
         for &c, i in capRows { c = cast(u64)math.abs(maxRows[i]) }
 
-        divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols, maxValues = lc)
-        divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows, maxValues = lr)
-
-        for d, i in deltaCols {
-            limCols[i] = maxCols[i] + (sign_i16(dc) * cast(i16)d)
+        for m, i in maxCols {
+            limCols[i] = cast(u64)m
         }
 
-        for d, i in deltaRows {
-            limRows[i] = maxRows[i] + (sign_i16(dr) * cast(i16)d)
+        for m, i in maxRows {
+            limRows[i] = cast(u64)m
         }
+
+        applyStretching(cast(u64)tc, stretchingCols, limCols)
+        applyStretching(cast(u64)tr, stretchingRows, limRows)
+
+        // divideBetween(cast(u64)math.abs(dc), priorityCols, transmute([]u64)deltaCols, maxValues = lc)
+        // divideBetween(cast(u64)math.abs(dr), priorityRows, transmute([]u64)deltaRows, maxValues = lr)
+        //
+        // for d, i in deltaCols {
+        //     limCols[i] = maxCols[i] + (sign_i16(dc) * cast(i16)d)
+        // }
+        //
+        // for d, i in deltaRows {
+        //     limRows[i] = maxRows[i] + (sign_i16(dr) * cast(i16)d)
+        // }
     }
 
-    totalCols := math.sum(limCols)
-    totalRows := math.sum(limRows)
+    totalCols := cast(i16)math.sum(limCols)
+    totalRows := cast(i16)math.sum(limRows)
 
     size = { totalCols, totalRows } + gapSize
 
@@ -1245,7 +1264,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
             n := buffer_get(self.configuration, { x, y }) or_continue
             e := self.children[n]
 
-            msize := Pos{ limCols[x], limRows[y] }
+            msize := Pos{ cast(i16)limCols[x], cast(i16)limRows[y] }
             element_render(e, ctx, { offset.x, offset.y, msize.x, msize.y })
 
             offset.y += msize.y
@@ -1260,7 +1279,7 @@ Element_Table_internalRender :: proc (self : ^Element, rect : Rect, ctx : ^Rende
         }
 
         offset.y = rect.y
-        offset.x += (limCols[x])
+        offset.x += cast(i16)(limCols[x])
 
         if useGap.x && x < self.configuration.rect.z - 1 {
             drawLine(ctx.bufferBoxes, { offset.x, offset.y, 1, oldRect.w }, gap.x, FontStyle_default, ctx.sharedBoxLayer)
