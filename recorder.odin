@@ -143,7 +143,7 @@ CellData :: struct {
 }
 
 BoxCellData :: struct {
-    box : BoxType,
+    masks : [4]BoxTypeMask,
     style : FontStyle,
     layer : int,
 }

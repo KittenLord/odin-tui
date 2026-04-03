@@ -153,6 +153,8 @@ env_removeLayer :: proc (env : ^Environment, layerId : int) {
 
 env_render :: proc (env : ^Environment, ctx : ^RenderingContext, rect : Rect) {
     for layer, i in env.layers {
+        element_assignParentRecurse(layer.root)
+
         elementSize := element_negotiate(layer.root, Constraints{ preferredSize = rect.zw / 2, maxSize = rect.zw, widthByHeightPriceRatio = 1 })
         // TODO: now that I think about it, maybe this should just be handled entirely by the Box element?
         // It will need these features either way
@@ -160,7 +162,7 @@ env_render :: proc (env : ^Environment, ctx : ^RenderingContext, rect : Rect) {
 
         if i != 0 {
             cc_fill(ctx.commandBuffer, elementRect)
-            buffer_reset(ctx.bufferBoxes, BoxCellData{ .None, FontStyle_default, -1 })
+            buffer_reset(ctx.bufferBoxes, BoxCellData{ {}, FontStyle_default, -1 })
         }
 
         element_render(layer.root, ctx, elementRect)

@@ -101,83 +101,85 @@ buffer_copyToBuffer :: proc (dst : Buffer($ty), src : Buffer(ty), offset : Pos =
     }
 }
 
-drawBox :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxCellData) {
+drawBoxCell :: proc (buffer : Buffer(BoxCellData), pos : Pos, box : BoxCellData) {
+    v, _ := buffer_get(buffer, pos)
+    buffer_set(buffer, pos, BoxCellData{ v.masks | box.masks, box.style, box.layer })
+}
+
+drawBox :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxType, style : FontStyle, layer : int) {
     br := br_from_rect(rect)
 
-    for x in rect.x..<br.x {
-        buffer_set(buffer, Pos{ x,   rect.y }, box)
-        buffer_set(buffer, Pos{ x, br.y - 1 }, box)
+    for x in (rect.x + 1)..<(br.x - 1) {
+        drawBoxCell(buffer, Pos{ x,   rect.y }, BoxCellData{ { {}, { box }, {}, { box } }, style, layer })
+        drawBoxCell(buffer, Pos{ x, br.y - 1 }, BoxCellData{ { {}, { box }, {}, { box } }, style, layer })
     }
 
     for y in (rect.y + 1)..<(br.y - 1) {
-        buffer_set(buffer, Pos{ rect.x,   y }, box)
-        buffer_set(buffer, Pos{ br.x - 1, y }, box)
+        drawBoxCell(buffer, Pos{ rect.x,   y }, BoxCellData{ { { box }, {}, { box }, {} }, style, layer })
+        drawBoxCell(buffer, Pos{ br.x - 1, y }, BoxCellData{ { { box }, {}, { box }, {} }, style, layer })
     }
+
+    // tl tr br bl
+    drawBoxCell(buffer, Pos{ rect.x,   rect.y   }, BoxCellData{ { {},      { box }, { box }, {}      }, style, layer })
+    drawBoxCell(buffer, Pos{ br.x - 1, rect.y   }, BoxCellData{ { {},      {},      { box }, { box } }, style, layer })
+    drawBoxCell(buffer, Pos{ br.x - 1, br.y - 1 }, BoxCellData{ { { box }, {},      {},      { box } }, style, layer })
+    drawBoxCell(buffer, Pos{ rect.x,   br.y - 1 }, BoxCellData{ { { box }, { box }, {},      {}      }, style, layer })
 }
 
-// NOTE: mostly for drawing lines
-drawBlock :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxCellData) {
-    br := br_from_rect(rect)
+drawLine :: proc (buffer : Buffer(BoxCellData), rect : Rect, box : BoxType, style : FontStyle, layer : int) {
+    if rect.z != 1 && rect.w != 1 { return }
+    
+    mask : [4]BoxTypeMask = rect.z == 1 ? { { box }, {}, { box }, {} } : { {}, { box }, {}, { box } }
 
-    for x in rect.x..<br.x {
-        for y in rect.y..<br.y {
-            buffer_set(buffer, Pos{ x, y }, box)
+    br := br_from_rect(rect)
+    for y in (rect.y)..<(br.y) {
+        for x in (rect.x)..<(br.x) {
+            drawBoxCell(buffer, { x, y }, BoxCellData{ mask, style, layer })
         }
     }
+
+    // NOTE: ehhhh idk this is kinda jank but it works for reasonable cases
+    if rect.z == 1 {
+        drawBoxCell(buffer, { rect.x, rect.y - 1 }, BoxCellData{ { {}, {}, { box }, {} }, style, layer })
+        drawBoxCell(buffer, { rect.x, br.y },       BoxCellData{ { { box }, {}, {}, {} }, style, layer })
+    }
+    else {
+        drawBoxCell(buffer, { rect.x - 1, rect.y }, BoxCellData{ { {}, { box }, {}, {} }, style, layer })
+        drawBoxCell(buffer, { br.x,       rect.y }, BoxCellData{ { {}, {}, {}, { box } }, style, layer })
+    }
 }
 
-// TODO: okay this doesnt work that well actually
 cc_resolveBoxBuffer :: proc (cb : ^CommandBuffer, buffer : Buffer(BoxCellData)) {
-    consecutive := false
-
     for y in 0..<buffer.rect.w {
+        consecutive := false
+
         for x in 0..<buffer.rect.z {
             box := buffer_get(buffer, { x, y }) or_continue
-            if box.box == .None {
+            if box.masks == {} {
                 consecutive = false
                 continue
             }
 
-            n := (buffer_get(buffer, { x, y - 1 }) or_else { .None, {}, -1 })
-            e := (buffer_get(buffer, { x + 1, y }) or_else { .None, {}, -1 })
-            s := (buffer_get(buffer, { x, y + 1 }) or_else { .None, {}, -1 })
-            w := (buffer_get(buffer, { x - 1, y }) or_else { .None, {}, -1 })
-
-            if n.layer != box.layer { n.box = .None } 
-            if e.layer != box.layer { e.box = .None } 
-            if s.layer != box.layer { s.box = .None } 
-            if w.layer != box.layer { w.box = .None } 
 
             candidate : BoxCharacter
-            canditateFound := false
             for c in BoxCharacters {
-                if n.box not_in c.masks[0] ||
-                   e.box not_in c.masks[1] ||
-                   s.box not_in c.masks[2] ||
-                   w.box not_in c.masks[3] { continue }
+                if (box.masks[0] & c.masks[0] == {} && box.masks[0] | c.masks[0] != {}) ||
+                   (box.masks[1] & c.masks[1] == {} && box.masks[1] | c.masks[1] != {}) ||
+                   (box.masks[2] & c.masks[2] == {} && box.masks[2] | c.masks[2] != {}) ||
+                   (box.masks[3] & c.masks[3] == {} && box.masks[3] | c.masks[3] != {}) { continue }
 
                 candidate = c
-                canditateFound = true
-                if box.box in c.type { break }
+                break
             }
 
-            if !canditateFound {
-                consecutive = false
-                continue
-            }
 
             if !consecutive {
                 consecutive = true
                 c_goto(cb, { x, y } + buffer.rect.xy)
             }
-
             c_style(cb, box.style)
             c_appendRune(cb, candidate.character)
-            // buffer_set(out, { x, y }, CellData{ r = candidate.character, style = box.style })
-            // buffer_set(out, { x, y }, CellData{ r = '#', style = box.style })
         }
-
-        consecutive = false
     }
 }
 
@@ -464,6 +466,7 @@ RenderingContext :: struct {
     commandBuffer : ^CommandBuffer,
 
     bufferBoxes : Buffer(BoxCellData),
+    // TODO: remove, this isnt needed with new box rendering
     sharedBoxLayer : int,
     uniqueBoxLayer : int,
 }
@@ -532,7 +535,7 @@ run :: proc () -> bool {
 
 
     root :=
-        box(.Single, {}, {},
+        box(.SingleCurve, {}, {},
             linear(.Horizontal, .Double, { { priority = 1, fill = .MinimalPossible }, {
                 // TODO: the result is kinda what we expected, but there's not really a way
                 // to split a container proportionally, unless all elements take the same
@@ -650,7 +653,7 @@ run :: proc () -> bool {
             box = buffer_create(screenRect, BoxCellData) or_return
         }
 
-        buffer_reset(box, BoxCellData{ BoxType.None, FontStyle_default, -1 })
+        buffer_reset(box, BoxCellData{ {}, FontStyle_default, -1 })
         c_reset(&cb)
 
 
