@@ -433,46 +433,6 @@ applyStretching :: proc (total : u64, stretchings : []Stretching, values : []u64
     // if delta == 0 { return }
 }
 
-_divideBetween :: proc (value : u64, coefficients : []u64, values : []u64, gap : u64 = 0, maxValues : []u64 = nil) {
-    gaps := (cast(u64)len(coefficients) - 1) * gap
-    if gaps >= value { return }
-
-    value := value - gaps
-
-    one : f64 = 0
-    for c in coefficients { one += f64(c) }
-    if one == 0 { return }
-
-    total : u64 = 0
-    for c, i in coefficients {
-        v  := u64(f64(value) * (f64(c) / one))
-        mv := maxValues != nil ? maxValues[i] : v
-        v = math.min(v, mv)
-
-        values[i] = v
-        total += v
-    }
-
-    if total >= value { return }
-
-    // TODO: I'm not sure if this is adequate, we need to prioritize larger coefficients and probably do it without a loop
-    rest := value - total
-    prest := rest + 1
-    for rest > 0 && prest != rest {
-        prest = rest
-
-        for c, i in coefficients {
-            if rest == 0 { break }
-            if c == 0 { continue }
-            if maxValues != nil && values[i] >= maxValues[i] { continue }
-
-            values[i] += 1
-            rest -= 1
-        }
-    }
-}
-
-
 
 TerminalState :: struct {
     termios : px.termios,

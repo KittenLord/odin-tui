@@ -14,6 +14,9 @@ import "core:log"
 
 
 
+// TODO: remove divideBetween-related calculations that aren't needed anymore (I'm scared to untangle that mess rn imma be real)
+
+
 EventType :: enum {
     Quit,
 }
@@ -993,10 +996,6 @@ Element_Linear_internalRender :: proc (self : ^Element, ctx : ^RenderingContext,
 
         // NOTE: unintentionally this made stretching not work within a scroll, which is good
         if iteration == lastIteration && delta > 0 && (!rendering || (!self.stretch.y && !self.stretch.x)) { delta = 0; total = linearTotal }
-
-        limit := delta < 0 ? caps : nil
-
-        for &c, i in caps { c = cast(u64)math.abs(sizes[i]) }
 
         for s, i in sizes {
             linearLimits[i] = cast(u64)s
