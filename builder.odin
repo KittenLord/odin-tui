@@ -1,6 +1,7 @@
 package tui
 
 import "core:slice"
+import "core:math"
 
 // NOTE: allocator argument removed because even if you want to specify the allocator it's
 // much more convenient to set the context allocator once instead of passing it to each
@@ -9,10 +10,9 @@ import "core:slice"
 // I'm not sure how to go about attaching data, really if we just allocate more space per element we don't need an additional
 // data pointer stored at the element, but I might be missing something............ will return to it later
 
-Store :: struct($tyDefault, $tyData : typeid) {
-    store   : ^^Element,        // Where to store the created element
-    default : tyDefault,        // Essentially how much space to allocate instead of the default type, i.e. if you have expanded it
-    data    : tyData,           // 
+BuilderOptions :: struct {
+    store : rawptr,
+    size  : int,
 }
 
 instantiate :: proc (e : ^Element) -> ^Element {
@@ -25,47 +25,70 @@ element :: proc (value : $ty, children : []^Element = nil) -> ^Element {
     return e
 }
 
-label :: proc (text : string) -> ^Element {
-    e := new_clone(Element_Label_default)
-    e.text = text
+builder_prepare :: proc (default : $ty, opt : BuilderOptions) -> ^ty {
+    size := max(size_of(ty), opt.size)
+    bytes := make([]u8, size)
+    e : ^ty = cast(^ty)raw_data(bytes)
+    e^ = default
+    e.size = size
     return e
 }
 
-linear :: proc (orientation : Element_Linear_Orientation, gap : Maybe(BoxType), s : LinearStretching, children : []^Element) -> ^Element {
-    e := new_clone(Element_Linear_default)
+builder_store :: proc (element : $ty, opt : BuilderOptions) -> ^Element {
+    if opt.store != nil {
+        (cast(^ty)opt.store)^ = element
+    }
+
+    return element
+}
+
+label :: proc (text : string, opt : BuilderOptions = {}) -> ^Element {
+    e := builder_prepare(Element_Label_default, opt)
+
+    e.text = text
+
+    return builder_store(e, opt)
+}
+
+linear :: proc (orientation : Element_Linear_Orientation, gap : Maybe(BoxType), s : LinearStretching, children : []^Element, opt : BuilderOptions = {}) -> ^Element {
+    e := builder_prepare(Element_Linear_default, opt)
+
     e.children = slice.clone(children)
 
     e.stretching = s
     e.gap = gap
     e.isHorizontal = (orientation == .Horizontal)
 
-    return e
+    return builder_store(e, opt)
 }
 
-scroll :: proc (scroll : [2]bool, scrollbar : [2]bool, targetFocus : bool, child : ^Element) -> ^Element {
-    e := new_clone(Element_Scroll_default)
+scroll :: proc (scroll : [2]bool, scrollbar : [2]bool, targetFocus : bool, child : ^Element, opt : BuilderOptions = {}) -> ^Element {
+    e := builder_prepare(Element_Scroll_default, opt)
+
     e.children = slice.clone([]^Element{ child })
 
     e.scroll = scroll
     e.scrollbar = scrollbar
     e.targetFocus = targetFocus
 
-    return e
+    return builder_store(e, opt)
 }
 
-box :: proc (border : BoxType, margin : Rect, padding : Rect, child : ^Element) -> ^Element {
-    e := new_clone(Element_Box_default)
+box :: proc (border : BoxType, margin : Rect, padding : Rect, child : ^Element, opt : BuilderOptions = {}) -> ^Element {
+    e := builder_prepare(Element_Box_default, opt)
+
     e.children = slice.clone([]^Element{ child })
 
     e.border = border
     e.margin = margin
     e.padding = padding
 
-    return e
+    return builder_store(e, opt)
 }
 
-table :: proc (size : Pos, gap : [2]Maybe(BoxType), stretching : [2]LinearStretching, children : []^Element) -> ^Element {
-    e := new_clone(Element_Table_default)
+table :: proc (size : Pos, gap : [2]Maybe(BoxType), stretching : [2]LinearStretching, children : []^Element, opt : BuilderOptions = {}) -> ^Element {
+    e := builder_prepare(Element_Table_default, opt)
+
     e.children = slice.clone(children)
 
     buffer, _ := buffer_create(Rect{ 0, 0, size.x, size.y }, int)
@@ -84,5 +107,5 @@ table :: proc (size : Pos, gap : [2]Maybe(BoxType), stretching : [2]LinearStretc
     e.stretchingRows = stretching[1]
     e.gap = gap
 
-    return e
+    return builder_store(e, opt)
 }

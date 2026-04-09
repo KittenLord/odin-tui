@@ -20,7 +20,7 @@ import "core:prof/spall"
 import "base:runtime"
 import "core:sync"
 
-
+// TODO: oh my FUCKING GOD it seems that I've completely fucked up unicode handling due to misreading docs im killing myself FUUUUUCKKKKKKK
 
 
 when ODIN_DEBUG {
@@ -394,9 +394,6 @@ applyStretching :: proc (total : u64, stretchings : []Stretching, values : []u64
     delta : i64 = (i64(total) - i64(sum))
     deltaOriginal := delta
 
-                 log.debugf("TOTAL %v STR %v VALUES %v DELTA %v", total, stretchings, values, delta)
-    defer log.debugf("RESULT TOTAL %v STR %v VALUES %v DELTA %v", total, stretchings, values, delta)
-
     one : f64 = 0
     for s in stretchings { one += cast(f64)calculatePriority(s) }
 
@@ -577,6 +574,8 @@ run :: proc () -> bool {
     element_retrieve(Element_Linear, root, { 0 }).stretch.x = true
     element_retrieve(Element_Linear, root, { 0, 0 }).stretch.y = true
     element_retrieve(Element_Table,  root, { 0, 0, 1 }).stretch.x = true
+
+    testptr : ^Element
 
     textPopup := 
         box(.Double, {}, {},
