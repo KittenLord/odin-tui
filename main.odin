@@ -386,6 +386,149 @@ drawTextBetter :: proc (ctx : ^RenderingContext, text : string, rect : Rect, ali
 
 
 
+TextTokenType :: enum {
+    EOF,
+    Invalid,
+
+    Word,
+    Whitespace,
+}
+
+TextToken :: struct {
+    type : TextTokenType,
+    value : string,
+}
+
+Tokenizer :: struct {
+    text : string,
+    peek : Maybe(TextToken),
+}
+
+text_pop :: proc (t : ^Tokenizer) -> TextToken {
+    peek, ok := t.peek.?
+    if ok {
+        t.peek = {}
+        return peek
+    }
+
+    if len(t.text) == 0 { return TextToken{ type = .EOF, value = "" } }
+    pc, _ := str_index(t.text, 0)
+
+    if false {}
+    else if str.is_space(pc) {
+        left := 0
+        for c in t.text {
+            if !str.is_space(c) { break }
+
+            cs := utf8.rune_size(c)
+            left += cs
+        }
+
+        token := TextToken{ type = .Whitespace, value = t.text[:left] }
+        t.text = t.text[left:]
+        return token
+    }
+    else {
+        left := 0
+        for c in t.text {
+            if str.is_space(c) { break }
+
+            cs := utf8.rune_size(c)
+            left += cs
+        }
+
+        token := TextToken{ type = .Word, value = t.text[:left] }
+        t.text = t.text[left:]
+        return token
+    }
+
+    return TextToken{ type = .Invalid, value = "" }
+}
+
+text_peek :: proc (t : ^Tokenizer) -> TextToken {
+    peek, ok := t.peek.?
+    if ok {
+        return peek
+    }
+    else {
+        p := text_pop(t)
+        t.peek = p
+        return p
+    }
+}
+
+// NOTE: man i fucking hate how odin handles strings, why even add it as a type if it's so fucked
+str_index :: proc (s : string, i : int) -> (r : rune, ok : bool = false) {
+    for c in s {
+        return c, true
+    }
+
+    return
+}
+
+str_length :: proc (s : string) -> int {
+    i := 0
+    for _ in s {
+        i += 1
+    }
+
+    return i
+}
+
+// drawTextBetterer :: proc (ctx : ^RenderingContext, text : string, rect : Rect, align : Alignment, wrap : Wrapping, rendering : bool = true) -> (actualRect : Rect, truncated : bool) {
+//     t := Tokenizer{
+//         text = text
+//     }
+//
+//     line := str.builder_make_none()
+//     height := 0
+//
+//     for true {
+//         token := text_peek(&t)
+//
+//         if token.type == .EOF { break }
+//
+//         token = text_pop(&t)
+//
+//         if token.type == .Whitespace { continue }
+//
+//         if token.type == .Word {
+//             sl := str_length(str.to_string(line))
+//             sp := sl != 0 ? 1 : 0
+//             wl := str_length(token.value)
+//
+//             if sl + sp + wl <= rect.z {
+//                 if sp != 0 {
+//                     fmt.sbprint(&line, " ")
+//                 }
+//
+//                 fmt.sbprint(&line, token.value)
+//
+//                 continue
+//             }
+//             else {
+//                 remaining := rect.z - (sl + sp)
+//
+//                 fit, rest, _ := substring_to(token.value, remaining)
+//                 t.peek = TextToken{ type = .Word, value = rest }
+//
+//                 if fit != 0 && sp != 0 {
+//                     fmt.sbprint(&line, " ")
+//                 }
+//
+//                 fmt.sbprint(&line, fit)
+//
+//                 height += 1
+//                 str.builder_reset(&line)
+//
+//                 if height >= rect.w { break }
+//             }
+//         }
+//     }
+// }
+
+
+
 
 applyStretching :: proc (total : u64, stretchings : []Stretching, values : []u64) {
     sum : u64 = 0
