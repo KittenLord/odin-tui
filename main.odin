@@ -56,7 +56,7 @@ Buffer :: struct($Item : typeid) {
 }
 
 buffer_create :: proc (r : Rect, $ty : typeid, allocator := context.allocator) -> (buffer : Buffer(ty), ok : bool = false) {
-    size := r.z * r.w
+    size := cast(u64)r.z * cast(u64)r.w
     buffer = Buffer(ty){ rect = r, data = make([]ty, size, allocator) }
     ok = true
     return

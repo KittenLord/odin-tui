@@ -4,6 +4,8 @@ import "core:fmt"
 import px "core:sys/posix"
 import lx "core:sys/linux"
 
+// TODO: we should really just change it from i16 to i64
+
 Pos     :: [2]i16 // col, row
 Rect    :: [4]i16 // col, row, width, height
 
