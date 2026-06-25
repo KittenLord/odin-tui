@@ -13,14 +13,23 @@ import utf8 "core:unicode/utf8"
 import "core:log"
 
 
-// TODO: figure out terminology. Component should be an element structure that constantly gets cloned,
-// basically a prefab, while <something> is an element structure that has a single instance and is
-// assigned to a layer when needed. At this point I will use "component" for the letter, but this is
-// to be changed
+// Component is a consistent element that is often used and it doesn't make sense to make/free them constantly
+
+// Components are grouped by broad categories, and a category may have multiple components,
+// indices' semantics are defined by user
 Component :: enum u64 {
     MessageBox,
 
-    COUNT,
+    COUNT, // NOTE: to avoid conflict with user-defined categories
+}
+
+// Blueprint is a frequently used element which you might want to be able to frequently clone and easily free,
+// potentially with environment managing a pool of instances to avoid allocations
+Blueprint :: enum u64 {
+    Button,
+    ListItem,
+
+    COUNT, // NOTE: to avoid conflict with user-defined categories
 }
 
 
@@ -43,26 +52,62 @@ Environment :: struct {
     availableLayerId : int,
 
     components : map[u64][dynamic]^Element,
+    blueprints : map[u64][dynamic]^Element,
 
     layers : [dynamic]EnvironmentLayer,
 }
 
-// NOTE: component can be anything castable to u64, as to allow extensibility
+
+
+
 env_addComponent :: proc (env : ^Environment, component : $ty, element : ^Element) -> int {
-    list, ok := &env.components[u64(component)]
+    c := u64(component)
+    list, ok := &env.components[c]
 
     if !ok {
-        env.components[u64(component)] = {}
-        list = &env.components[u64(component)]
+        env.components[c] = {}
+        list = &env.components[c]
     }
 
     append(list, element)
-    return len(list)
+    return len(list) - 1
 }
 
 env_getComponent :: proc (env : ^Environment, component : $ty, $cty : typeid, index : int = 0) -> ^cty {
-    return cast(^cty)env.components[u64(component)][index]
+    c := u64(component)
+    return cast(^cty)env.components[c][index]
 }
+
+
+
+env_setBlueprint :: proc (env : ^Environment, blueprint : $ty, element : ^Element) -> int {
+    c := u64(blueprint)
+    list, ok := &env.blueprints[c]
+
+    if !ok {
+        env.blueprints[c] = {}
+        list = &env.blueprints[c]
+    }
+
+    append(list, element)
+    return len(list) - 1
+}
+
+env_makeBlueprint :: proc (env : ^Environment, blueprint : $ty, $cty : typeid, index : int = 0) -> ^cty {
+    c := u64(blueprint)
+    bp := env.blueprints[c][index]
+
+    return cast(^cty)element_clone(bp)
+}
+
+env_freeBlueprint :: proc (env : ^Environment, element : rawptr, blueprint : $ty, index : int = 0) {
+
+}
+
+
+
+
+
 
 env_input :: proc (env : ^Environment, input : rune) {
     // #reverse for layer in env.layers {

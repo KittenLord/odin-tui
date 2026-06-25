@@ -756,7 +756,7 @@ run :: proc () -> bool {
     env_addComponent(&env, Component.MessageBox, textPopup)
 
     env_addLayer(&env, root, { .Fill, .Fill }, true)
-    // env_addLayer(&env, textPopup, { .Expand1, .Expand1 }, true)
+    env_addLayer(&env, textPopup, { .Expand1, .Expand1 }, true)
 
 
 

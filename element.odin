@@ -75,8 +75,6 @@ Element :: struct {
     kind : string,
     size : int,
 
-    data    : rawptr,
-
     // TODO: now that i think about it this should probably be a dynamic array
     children : []^Element,
     environment : ^Environment,
@@ -91,6 +89,7 @@ Element :: struct {
     inputFocus : proc (self : ^Element, input : rune),
 
     focus      : proc (self : ^Element),
+    unfocus    : proc (self : ^Element),
     navigate   : proc (self : ^Element, dir : Nav),
 
     event      : proc (self : ^Element, event : Event) -> (propagate : bool),
@@ -138,6 +137,10 @@ inputFocus_default :: proc (self : ^Element, input : rune) {
 }
 
 focus_default :: proc (self : ^Element) {
+    return
+}
+
+unfocus_default :: proc (self : ^Element) {
     return
 }
 
@@ -193,7 +196,7 @@ element_focus :: proc (e : ^Element) {
     layer := element_getLayer(e)
 
     if layer.focus != nil {
-        element_unfocus(layer.focus) // TODO: do we need this?
+        element_unfocus(layer.focus)
     }
 
     layer.focus = e
@@ -201,7 +204,7 @@ element_focus :: proc (e : ^Element) {
 }
 
 element_unfocus :: proc (e : ^Element) {
-    return
+    e->unfocus()
 }
 
 element_event :: proc (e : ^Element, event : Event) {
@@ -222,19 +225,7 @@ element_interact :: proc (e : ^Element) {
 
 
 
-element_data :: proc (e : ^Element, $ty : typeid) -> ^ty {
-    return cast(^ty)e.data
-}
-
-element_setData :: proc (e : ^Element, p : rawptr) {
-    e.data = p
-}
-
-element_makeData :: proc (e : ^Element, $ty : typeid, value : ty, allocator := context.allocator) -> ^ty {
-    e.data = new(ty, allocator)
-    (cast(^ty)e.data)^ = value
-    return cast(^ty)e.data
-}
+// TODO: figure out what the fuck to do with passing/storing allocators
 
 // TODO: e->clone()
 element_cloneShallow :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
@@ -244,12 +235,24 @@ element_cloneShallow :: proc (e : ^Element, allocator := context.allocator) -> ^
 
 element_clone :: proc (e : ^Element, allocator := context.allocator) -> ^Element {
     copy := element_cloneShallow(e, allocator)
+    copy.children = slice.clone(copy.children)
+    copy.parent = nil
+
     for &c in copy.children {
         c = element_clone(c, allocator)
+        c.parent = copy
     }
 
     return copy
 }
+
+element_free :: proc (e : ^Element) {
+
+}
+
+
+
+
 
 element_isChild :: proc (parent : ^Element, child : ^Element, direct : bool = false) -> bool {
     if parent == child { return false }
@@ -454,7 +457,7 @@ element_getFullKindName :: proc (target : ^Element) -> string {
 }
 
 Element_Table :: struct {
-    using base : Element,
+    using core : Element,
 
     configuration : Buffer(int),
 
@@ -466,7 +469,7 @@ Element_Table :: struct {
 }
 
 Element_Label :: struct {
-    using base : Element,
+    using core : Element,
 
     text : string,
 }
@@ -478,7 +481,7 @@ Element_Linear_Orientation :: enum {
 
 // TODO: we probably need to remember the last child that was focused and return to it instead of the first one
 Element_Linear :: struct {
-    using base : Element,
+    using core : Element,
 
     isHorizontal : bool,
     gap : Maybe(BoxType),
@@ -486,7 +489,7 @@ Element_Linear :: struct {
 }
 
 Element_Scroll :: struct {
-    using base : Element,
+    using core : Element,
 
     scroll : [2]bool,
 
@@ -508,7 +511,7 @@ Element_Scroll :: struct {
 }
 
 Element_Box :: struct {
-    using base : Element,
+    using core : Element,
 
     margin : Rect,
     padding : Rect,
@@ -526,6 +529,7 @@ Element_default :: Element{
     input = input_default,
     inputFocus = inputFocus_default,
     focus = focus_default,
+    unfocus = unfocus_default,
     navigate = navigate_default,
     event = event_default,
     interact = interact_default,
@@ -579,6 +583,8 @@ Element_Box_default :: Element_Box{
             element_focus(self.children[0])
         }
     },
+
+    unfocus = unfocus_default,
 
     navigate = navigate_default,
     event = event_default,
@@ -662,6 +668,7 @@ Element_Label_default :: Element_Label{
     input = input_default,
     inputFocus = inputFocus_default,
     focus = focus_default,
+    unfocus = unfocus_default,
     navigate = navigate_default,
     event = event_default,
     interact = interact_default,
@@ -687,6 +694,8 @@ Element_Linear_default :: Element_Linear{
         self := cast(^Element_Linear)self
         element_focus(self.children[0])
     },
+
+    unfocus = unfocus_default,
 
     navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Linear)self
@@ -887,6 +896,8 @@ Element_Scroll_default :: Element_Scroll{
         }
     },
 
+    unfocus = unfocus_default,
+
     navigate = navigate_default,
     event = event_default,
     interact = interact_default,
@@ -1058,6 +1069,7 @@ Element_Table_default :: Element_Table{
         e := self.children[n]
         element_focus(e)
     },
+    unfocus = unfocus_default,
     navigate = proc (self : ^Element, dir : Nav) {
         self := cast(^Element_Table)self
 
