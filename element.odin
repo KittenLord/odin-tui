@@ -603,7 +603,7 @@ Element_Label_default :: Element_Label{
             cc_fill(ctx.commandBuffer, rect)
         }
 
-        drawTextBetter(ctx, self.text, rect, { .Left, .Top }, .NoWrapping)
+        drawTextBetterer(ctx, self.text, rect, { .Left, .Top }, .NoWrapping)
     },
 
     negotiate = proc (self : ^Element, constraints : Constraints) -> (size : Pos) {
@@ -611,11 +611,11 @@ Element_Label_default :: Element_Label{
         
         self := cast(^Element_Label)self
 
-        if rect, truncated := drawTextBetter(nil, self.text, { 0, 0, constraints.preferredSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false); !truncated {
+        if rect, truncated := drawTextBetterer(nil, self.text, { 0, 0, constraints.preferredSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false); !truncated {
             return rect.zw
         }
 
-        rect, truncated := drawTextBetter(nil, self.text, { 0, 0, constraints.maxSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false)
+        rect, truncated := drawTextBetterer(nil, self.text, { 0, 0, constraints.maxSize.x, constraints.maxSize.y }, { .Left, .Top }, .NoWrapping, rendering = false)
         if truncated { return constraints.maxSize }
 
         wlo : i16 = 0
@@ -632,7 +632,7 @@ Element_Label_default :: Element_Label{
 
             wtmp = (wlo + whi) / 2
             wrect := Rect{ 0, 0, wtmp, constraints.maxSize.y }
-            rect, truncated := drawTextBetter(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
+            rect, truncated := drawTextBetterer(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
 
             // NOTE: we try to find the smallest width possible, so if it is NOT truncated, we try to find smaller
 
@@ -647,7 +647,7 @@ Element_Label_default :: Element_Label{
                 if wtmp <= constraints.preferredSize.x {
                     wtmp = constraints.preferredSize.x
                     wrect := Rect{ 0, 0, wtmp, constraints.maxSize.y }
-                    rect, _ := drawTextBetter(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
+                    rect, _ := drawTextBetterer(nil, self.text, wrect, { .Left, .Top }, .NoWrapping, rendering = false)
 
                     whi = wtmp
                     wcc = wtmp

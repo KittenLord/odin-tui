@@ -234,10 +234,12 @@ c_goto :: proc (cbb : ^CommandBuffer, p : Pos) {
 c_styleClear :: proc (cbb : ^CommandBuffer) {
     switch cb in cbb {
     case CommandBuffer_Stdout:
-        cbc := cb
+        c_appendString(cbb, "\e[0m")
+
+        // NOTE: doing this before c_appendString caused builder pointer to get desynced
+        cbc := cbb^.(CommandBuffer_Stdout)
         defer cbb^ = cbc
 
-        c_appendString(cbb, "\e[0m")
         cbc.style = FontStyle_default
     case CommandBuffer_Buffer:
         cbc := cb
@@ -261,8 +263,9 @@ c_style :: proc (cbb : ^CommandBuffer, style : FontStyle) -> (previous : FontSty
         c_appendString(cbb, write_FontColor(style.bg, true, buffer[:]))
 
         cbc := cbb^.(CommandBuffer_Stdout)
+        defer cbb^ = cbc
+
         cbc.style = style
-        cbb^ = cbc
     case CommandBuffer_Buffer:
         cbc := cb
         defer cbb^ = cbc
