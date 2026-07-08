@@ -163,44 +163,32 @@ CommandBuffer_Buffer :: struct {
 // cc_  : derived command (is defined in terms of other c_ or cc_ commands)
 
 c_reset :: proc (cbb : ^CommandBuffer) {
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
-        // NOTE: oh my fucking goooooooood
-        cbc := cb
-        str.builder_reset(&cbc.builder)
-        cbb^ = cbc
+        str.builder_reset(&cb.builder)
     case CommandBuffer_Buffer:
         buffer_reset(cb.buffer, CellData{ r = '\x00' })
     }
 }
 
 c_appendRune :: proc (cbb : ^CommandBuffer, r : rune) {
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
-        cbc := cb
-        defer cbb^ = cbc
-        
-        str.write_rune(&cbc.builder, r)
+        str.write_rune(&cb.builder, r)
     case CommandBuffer_Buffer:
-        cbc := cb
-        defer cbb^ = cbc
-
-        buffer_set(cbc.buffer, cbc.pos, CellData{ r = r, style = cbc.style })
-        cbc.pos.x += 1
-        if cbc.pos.x >= cbc.buffer.rect.x + cbc.buffer.rect.z {
-            cbc.pos.x = cbc.buffer.rect.x
-            cbc.pos.y += 1
+        buffer_set(cb.buffer, cb.pos, CellData{ r = r, style = cb.style })
+        cb.pos.x += 1
+        if cb.pos.x >= cb.buffer.rect.x + cb.buffer.rect.z {
+            cb.pos.x = cb.buffer.rect.x
+            cb.pos.y += 1
         }
     }
 }
 
 c_appendString :: proc (cbb : ^CommandBuffer, s : string) {
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
-        cbc := cb
-        defer cbb^ = cbc
-
-        str.write_string(&cbc.builder, s)
+        str.write_string(&cb.builder, s)
     case CommandBuffer_Buffer:
         for c in s {
             c_appendRune(cbb, c)
@@ -218,34 +206,23 @@ c_clear :: proc (cbb : ^CommandBuffer) {
 }
 
 c_goto :: proc (cbb : ^CommandBuffer, p : Pos) {
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
         buffer : [32]u8
         s := fmt.bprintf(buffer[:], "\e[%v;%vH", p.y + 1, p.x + 1)
         c_appendString(cbb, s)
     case CommandBuffer_Buffer:
-        cbc := cb
-        defer cbb^ = cbc
-
-        cbc.pos = p
+        cb.pos = p
     }
 }
 
 c_styleClear :: proc (cbb : ^CommandBuffer) {
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
         c_appendString(cbb, "\e[0m")
-
-        // NOTE: doing this before c_appendString caused builder pointer to get desynced
-        cbc := cbb^.(CommandBuffer_Stdout)
-        defer cbb^ = cbc
-
-        cbc.style = FontStyle_default
+        cb.style = FontStyle_default
     case CommandBuffer_Buffer:
-        cbc := cb
-        defer cbb^ = cbc
-
-        cbc.style = FontStyle_default
+        cb.style = FontStyle_default
     }
 }
 
@@ -253,7 +230,7 @@ c_style :: proc (cbb : ^CommandBuffer, style : FontStyle) -> (previous : FontSty
     previous = c_styleGet(cbb)
     if style == previous { return }
 
-    switch cb in cbb {
+    switch &cb in cbb {
     case CommandBuffer_Stdout:
         c_styleClear(cbb)
 
@@ -262,15 +239,9 @@ c_style :: proc (cbb : ^CommandBuffer, style : FontStyle) -> (previous : FontSty
         c_appendString(cbb, write_FontColor(style.fg, false, buffer[:]))
         c_appendString(cbb, write_FontColor(style.bg, true, buffer[:]))
 
-        cbc := cbb^.(CommandBuffer_Stdout)
-        defer cbb^ = cbc
-
-        cbc.style = style
+        cb.style = style
     case CommandBuffer_Buffer:
-        cbc := cb
-        defer cbb^ = cbc
-
-        cbc.style = style
+        cb.style = style
     }
     
     return
