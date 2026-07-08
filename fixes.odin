@@ -53,3 +53,24 @@ substring_from :: proc (s : string, lo : int) -> (rest : string, sub : string, o
 
     return s[0:lob], s[lob:len((transmute([]u8)s))], true
 }
+
+
+
+
+// NOTE: man i fucking hate how stdlib handles strings
+str_index :: proc (s : string, i : int) -> (r : rune, ok : bool = false) {
+    for c in s {
+        return c, true
+    }
+
+    return
+}
+
+str_length :: proc (s : string) -> int {
+    i := 0
+    for _ in s {
+        i += 1
+    }
+
+    return i
+}
